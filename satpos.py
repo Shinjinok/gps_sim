@@ -22,7 +22,7 @@ Example:
     python satpos.py --file=rinex210.18N --iteration=Householder
 
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 import argparse
 import georinex as gr
@@ -47,9 +47,9 @@ class Eph:
     weight: int = None
     price: float = None
     vflg: int = None	#/*!< Valid Flag */
-#    t: datetime_t 
-#    toc: gpstime_t  #	/*!< Time of Clock */
-#    toe: gpstime_t #	/*!< Time of Ephemeris */
+    t: datetime_t = field(default_factory=dict)
+    toc: gpstime_t = field(default_factory=dict) #	/*!< Time of Clock */
+    toe: gpstime_t  = field(default_factory=dict) #	/*!< Time of Ephemeris */
     iodc: int = None #	/*!< Issue of Data, Clock */
     iode: int = None #	/*!< Isuse of Data, Ephemeris */
     deltan: float = None #	/*!< Delta-N (radians/sec) */
@@ -78,6 +78,10 @@ class Eph:
     sq1e2: float = None #	/*!< sqrt(1-e^2) */
     A: float = None #	/*!< Semi-major axis */
     omgkdot: float = None # /*!< OmegaDot-OmegaEdot */
+    def __post_init__(self):
+        self.toe = gpstime_t()
+        self.t = datetime_t()
+        self.toc = gpstime_t()
 
 
 
@@ -120,7 +124,7 @@ def checkSatVisibility(eph, g, xyz, elvMask, azel):
         #return 1 #Visible
     return 0
 
-def satpos(eph, g, toe, toc):
+def satpos(eph, g):
    
     g = gpstime_t()
     pos=np.zeros(3)
@@ -128,7 +132,7 @@ def satpos(eph, g, toe, toc):
     clk=np.zeros(3)
 
     deltan = eph.deltan;
-    tk = g.sec - toe.sec;
+    tk = g.sec - eph.toe.sec;
 
     if tk > SECONDS_IN_HALF_WEEK:
         tk -= SECONDS_IN_WEEK
@@ -186,7 +190,7 @@ def satpos(eph, g, toe, toc):
     ypk = rk*suk
     xpkdot = rkdot*cuk - ypk*ukdot
     ypkdot = rkdot*suk + xpk*ukdot
-    ok = eph.omg0 + tk*eph.omgkdot - OMEGA_EARTH*toe.sec
+    ok = eph.omg0 + tk*eph.omgkdot - OMEGA_EARTH*eph.toe.sec
     sok = np.sin(ok)
     cok = np.cos(ok)
 
@@ -201,7 +205,7 @@ def satpos(eph, g, toe, toc):
     vel[2] = ypk*cik*ikdot + ypkdot*sik
 
     # Satellite clock correction
-    tk = g.sec - toc.sec
+    tk = g.sec - eph.toc.sec
 
     if tk>SECONDS_IN_HALF_WEEK:
         tk -= SECONDS_IN_WEEK
@@ -382,7 +386,7 @@ def calSatPos(data,time_tsv, timeCor=False, iteration='Newton'):
 
 def data2eph(data):
     eph=Eph()
-    
+    #eph.toe = gpstime_t()
     eph.deltan = data['DeltaN']
     eph.m0 = data['M0']
     eph.af0 = data['SVclockBias']
@@ -421,13 +425,13 @@ if __name__ == "__main__":
     
     data = gr.load(args.file)
     df = data.to_dataframe()
-    satp = np.zeros([30,3])
+    satp = np.zeros([1,3])
     for i in range(len(satp)):
 
         g01 = df.iloc[0]
         #satp[i] = calSatPos(g01,timeCor=args.timeCor,iteration=args.iteration, time_tsv=i*60*40)
         eph = data2eph(g01)
-        satp[i] = satpos(eph,g=gpstime_t(),toe=gpstime_t(),toc=gpstime_t())
+        satp[i] = satpos(eph,g=gpstime_t())
     # load bluemarble with PIL
     bm = Image.open('bluemarble.jpg')
     # it's big, so I'll rescale it, convert to array, and divide by 256 to get RGB values that matplotlib accept
@@ -446,11 +450,12 @@ if __name__ == "__main__":
     y = np.outer(np.sin(lons), np.cos(lats)).T
     z = np.outer(np.ones(np.size(lons)), np.sin(lats)).T
     ax.plot_surface(x, y, z, rstride=1, cstride=1, facecolors = bm)
-    print(np.linalg.norm(satp)/1000)
-    print(np.linalg.norm(satp)/6357000)
     print(satp)
     for i in range(len(satp)):
-        ax.plot(satp[i ,0]/(6357000),satp[i, 1]/(6357000),satp[i ,2]/(6357000),'o')
+        px=satp[i,0]/6357000.0
+        py=satp[i,1]/6357000.0
+        pz=satp[i,2]/6357000.0
+        ax.plot([0,px],[0,py],[0,pz],'o')
         #ax.plot([0,satp[i ,0]/(6357000)],[0,satp[i, 1]/(6357000)],[0,satp[i ,2]/(6357000)])
     plt.show()
 
