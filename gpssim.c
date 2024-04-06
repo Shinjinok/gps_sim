@@ -1629,6 +1629,7 @@ int allocateChannel(channel_t *chan, ephem_t *eph, ionoutc_t ionoutc, gpstime_t 
 
 	for (sv=0; sv<MAX_SAT; sv++)
 	{
+		
 		if(checkSatVisibility(eph[sv], grx, xyz, 0.0, azel)==1)
 		{
 			nsat++; // Number of visible satellites

@@ -30,12 +30,18 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
+
+CA_SEQ_LEN = 1023
+N_DWRD_SBF = 10
+N_SBF = 5
+N_DWRD = (N_SBF+1)*N_DWRD_SBF
+
 @dataclass
-class datetime_t:
+class gpstime_t:
     week: int = 0
     sec: float = 0.0
 @dataclass
-class gpstime_t:
+class datetime_t:
     y: int = 0
     m: int = 0
     d: int = 0
@@ -44,8 +50,6 @@ class gpstime_t:
     sec: float = 0.0
 @dataclass 
 class Eph: 
-    weight: int = None
-    price: float = None
     vflg: int = None	#/*!< Valid Flag */
     t: datetime_t = field(default_factory=dict)
     toc: gpstime_t = field(default_factory=dict) #	/*!< Time of Clock */
@@ -82,7 +86,63 @@ class Eph:
         self.toe = gpstime_t()
         self.t = datetime_t()
         self.toc = gpstime_t()
+@dataclass 
+class range_t: 
+    g: gpstime_t = field(default_factory=dict)
+    range: float = None # pseudorange
+    rate: float = None
+    d: float = None #  // geometric distance
+    azel: float = field(default_factory=dict)# 
+    iono_delay: float = None # 
+    def __post_init__(self):
+        self.g = gpstime_t()
+        self.azel = np.zeros(2)
+@dataclass 
+class channel_t:
+    prn: int = None
+    ca: int = field(default_factory=dict)
+    f_carr: float = None
+    f_code: float = None
+    carr_phase: int = None
+    carr_phasestep: int = None
+    code_phase: float = None
+    g0: gpstime_t = field(default_factory=dict)
+    sbf: int = field(default_factory=dict)
+    dwrd: int = field(default_factory=dict)
+    iword: int = None
+    ibit: int = None
+    icode: int = None
+    dataBit: int = None
+    codeCA: int = None
+    azel: float = field(default_factory=dict)
+    rho0: range_t = field(default_factory=dict)
+    def __post_init__(self):
+        self.ca = np.zero(CA_SEQ_LEN)
+        self.g0 = gpstime_t()
+        self.sbf = np.zeros((5,N_DWRD_SBF))
+        self.dwrd = np.zeros(N_DWRD)
+        self.azel = np.zeros(2)
+        self.rho0 = range_t()
 
+class ionoutc_t:
+    enable: int = None
+    vflg: int = None
+    alpha0: float = None
+    alpha1: float = None
+    alpha2: float = None
+    alpha3: float = None
+    beta0: float = None
+    beta1: float = None
+    beta2: float = None
+    beta3: float = None
+    A0: float = None
+    A1: float = None
+    dtls: int = None
+    tot: int = None
+    wnt: int = None
+    dtlsf: int = None
+    dn: int = None
+    wnlsf: int = None
 
 
 parser = argparse.ArgumentParser(description='manual to this script')
@@ -94,13 +154,83 @@ WGS84_RADIUS =	6378137.0
 WGS84_ECCENTRICITY = 0.0818191908426
 SECONDS_IN_WEEK = 604800.0
 SECONDS_IN_HALF_WEEK =302400.0
+SECONDS_IN_DAY = 86400.0
+SECONDS_IN_HOUR = 3600.0
+SECONDS_IN_MINUTE = 60.0
 OMEGA_EARTH = 7.2921151467e-5
+GM_EARTH = 3.986005e14
+MAX_SAT = 32
+MAX_CHAN = 16
 GM = 3.986005*np.power(10.0,14)
 c = 2.99792458*np.power(10.0,8)
 omegae_dot = 7.2921151467*np.power(10.0,-5)
 
 earth_rate = 2*np.pi/(60*60*24)
+allocatedSat = np.full(MAX_SAT,-1)
+chan = np.zeros(MAX_CHAN)
 
+EPHEM_ARRAY_SIZE = 13
+    
+
+def allocateChannel(chan, eph, ionoutc, grx, xyz, elvMask):
+    nsat=0
+    i=0
+    sv=0
+    azel = np.zeros(2)
+    rho = range_t()
+    ref = np.zeros(3)
+    r_ref,r_xyz = 0.0
+    phase_ini=0.0
+
+    for sv in range(MAX_SAT):
+        vis, azel = checkSatVisibility(eph[sv],grx,xyz,0.0)
+        if vis == 1:
+            nsat += 1# // Number of visible satellites
+
+            if allocatedSat[sv] == -1 : # // Visible but not allocated
+#				// Allocated new satellite
+                for i in range(MAX_CHAN):
+
+                    if chan[i].prn == 0:
+
+                        #// Initialize channel
+                        chan[i].prn = sv+1
+                        chan[i].azel[0] = azel[0]
+                        chan[i].azel[1] = azel[1]
+                        break
+
+                #// Set satellite allocation channel
+                if i < MAX_CHAN:
+                    allocatedSat[sv] = i
+
+        elif allocatedSat[sv] >= 0: # // Not visible but allocated
+            
+			#// Clear channel
+            chan[allocatedSat[sv]].prn = 0
+
+			#// Clear satellite allocation flag
+            allocatedSat[sv] = -1
+		
+    return nsat
+
+def incGpsTime(g0, dt):
+    g1 = gpstime_t()
+
+    g1.sec = g0.sec
+    g1.sec = g0.sec + dt
+    g1.sec = round(g1.sec*1000.0)/1000.0 #// Avoid rounding error
+
+    while  g1.sec >= SECONDS_IN_WEEK:
+	
+        g1.sec -= SECONDS_IN_WEEK
+        g1.week += 1
+
+    while  g1.sec < 0.0:
+
+        g1.sec += SECONDS_IN_WEEK
+        g1.week -= 1
+
+    return g1
 
 def checkSatVisibility(eph, g, xyz, elvMask, azel):
 
@@ -116,13 +246,37 @@ def checkSatVisibility(eph, g, xyz, elvMask, azel):
     tmat = ltcmat(llh)
 
     pos, vel, clk = satpos(eph, g)
-    #subVect(los, pos, xyz)
-    #ecef2neu(los, tmat, neu)
-    #neu2azel(azel, neu)
+    los = subVect(pos, xyz)
+    neu = ecef2neu(los, tmat)
+    azel = neu2azel(neu)
 
-    #if azel[1]*180/np.pi > elvMask:
-        #return 1 #Visible
-    return 0
+    if azel[1]*180/np.pi > elvMask:
+        return 1 , azel#Visible
+    return 0 , azel
+
+def neu2azel(neu):
+    azel = np.zeros(2)
+    azel[0] = np.arctan2(neu[1],neu[0])
+    if azel[0] < 0.0:
+        azel[0] += (2.0*np.pi)
+
+    ne = np.sqrt(neu[0]*neu[0] + neu[1]*neu[1])
+    azel[1] = np.arctan2(neu[2], ne)
+    return azel
+
+def ecef2neu(xyz,t):
+    neu = np.zeros(3)
+    neu[0] = t[0][0]*xyz[0] + t[0][1]*xyz[1] + t[0][2]*xyz[2]
+    neu[1] = t[1][0]*xyz[0] + t[1][1]*xyz[1] + t[1][2]*xyz[2]
+    neu[2] = t[2][0]*xyz[0] + t[2][1]*xyz[1] + t[2][2]*xyz[2]
+    return neu
+
+def subVect(x1, x2):
+    y = np.zeros(3)
+    y[0] = x1[0]-x2[0]
+    y[1] = x1[1]-x2[1]
+    y[2] = x1[2]-x2[2]
+    return y
 
 def satpos(eph, g):
    
@@ -411,9 +565,194 @@ def data2eph(data):
     eph.sq1e2 = np.sqrt(1.0 - np.power(eph.ecc,2))
     eph.omgkdot = eph.omgdot - OMEGA_EARTH
    # eph.toe.sec = 0
-    
-
     return eph
+
+def date2gps(t):
+    g = gpstime_t()
+    doy= [0,31,59,90,120,151,181,212,243,273,304,334]
+
+    ye = t.y - 1980
+
+	# Compute the number of leap days since Jan 5/Jan 6, 1980.
+    lpdays = ye/4 + 1
+    if ye%4 ==0 & t.m <=2:
+        lpdays -=1
+
+	# Compute the number of days elapsed since Jan 5/Jan 6, 1980.
+    de = ye*365 + doy[t.m-1] + t.d + lpdays - 6
+
+	#// Convert time to GPS weeks and seconds.
+    g.week = de / 7
+    g.sec = (de%7)*SECONDS_IN_DAY + t.hh*SECONDS_IN_HOUR + t.mm*SECONDS_IN_MINUTE + t.sec
+
+    return g
+
+def subGpsTime(g1,g0):
+    dt = g1.sec - g0.sec
+    dt += (g1.week - g0.week) * SECONDS_IN_WEEK
+    return dt
+
+def readRinexNavAll(fname):
+    eph = [[Eph() for _ in range(MAX_SAT)] for _ in range(EPHEM_ARRAY_SIZE)]
+    ionoutc = ionoutc_t()
+    g0 = gpstime_t()
+    g = gpstime_t()
+    t = datetime_t()
+
+
+    f = open(fname,'r')
+    for ieph in range(EPHEM_ARRAY_SIZE):
+        for sv in range(MAX_SAT):
+            eph[ieph][sv].vflg = 0
+    
+    while True:
+        r = f.readline()
+        print(r)
+
+        if r.find('END OF HEADER') > 0:
+            ionoutc.vflg = True
+            break
+        elif r.find('ION ALPHA') > 0:
+
+            ionoutc.alpha0 = float(r[2:14].replace('D','E'))
+            ionoutc.alpha1 = float(r[14:26].replace('D','E'))
+            ionoutc.alpha2 = float(r[26:38].replace('D','E'))
+            ionoutc.alpha3 = float(r[38:50].replace('D','E'))
+
+        elif r.find('ION BETA') > 0:
+
+            ionoutc.beta0 = float(r[2:14].replace('D','E'))
+            ionoutc.beta1 = float(r[14:26].replace('D','E'))
+            ionoutc.beta2 = float(r[26:38].replace('D','E'))
+            ionoutc.beta3 = float(r[38:50].replace('D','E'))
+        
+        elif r.find('DELTA-UTC') > 0:
+
+            ionoutc.A0 = float(r[3:22].replace('D','E'))
+            ionoutc.A1 = float(r[22:41].replace('D','E'))
+            ionoutc.tot = int(r[41:50])
+            ionoutc.wnt = int(r[50:59])
+
+            
+        elif r.find('LEAP SECONDS') > 0: 
+            ionoutc.dtls = int(r[0:6]) 
+
+            print(ionoutc.dtls)  
+
+    # Read ephemeris blocks
+    g0.week = -1
+    ieph = 0
+
+    while True:
+        r = f.readline()
+        if r == '':
+            break
+        #PRN
+        sv = int(r[0:2])-1
+        #EPOCH
+        t.y = int(r[3:5])+2000
+        t.m = int(r[6:8])
+        t.d = int(r[9:11])
+        t.hh = int(r[12:14])
+        t.mm = int(r[15:17])
+        t.sec = float(r[18:22])
+        print(t)
+
+        g = date2gps(t)
+
+        if g0.week == -1:
+            g0 = g
+        
+        dt = subGpsTime(g, g0)
+
+        if dt > SECONDS_IN_HOUR:
+            g0 = g
+            ieph +=1
+            if ieph >= EPHEM_ARRAY_SIZE:
+                break
+        eph[ieph][sv].toc = g
+        eph[ieph][sv].af0 = float(r[22:22+19].replace('D','E'))
+        eph[ieph][sv].af1 = float(r[41:41+19].replace('D','E'))
+        eph[ieph][sv].af2 = float(r[60:60+19].replace('D','E'))
+
+        print(eph[ieph][sv].af0,eph[ieph][sv].af1,eph[ieph][sv].af2)
+        #// BROADCAST ORBIT 1
+        r = f.readline()
+        eph[ieph][sv].iode = float(r[3:3+19].replace('D','E'))
+        eph[ieph][sv].crs = float(r[22:22+19].replace('D','E'))
+        eph[ieph][sv].deltan = float(r[41:41+19].replace('D','E'))
+        eph[ieph][sv].m0 = float(r[60:60+19].replace('D','E'))
+        print('[r1]',r)
+        print('[r1]',eph[ieph][sv].iode,eph[ieph][sv].crs,eph[ieph][sv].deltan,eph[ieph][sv].m0)
+
+        #// BROADCAST ORBIT 2
+        r = f.readline()
+        eph[ieph][sv].cuc = float(r[3:3+19].replace('D','E'))
+        eph[ieph][sv].ecc = float(r[22:22+19].replace('D','E'))
+        eph[ieph][sv].cus = float(r[41:41+19].replace('D','E'))
+        eph[ieph][sv].sqrta = float(r[60:60+19].replace('D','E'))
+        print('[r2]',r)
+        print('[r2]',eph[ieph][sv].cuc,eph[ieph][sv].ecc,eph[ieph][sv].cus,eph[ieph][sv].sqrta)
+
+        #// BROADCAST ORBIT 3
+        r = f.readline()
+        eph[ieph][sv].toe.sec = float(r[3:3+19].replace('D','E'))
+        eph[ieph][sv].cic = float(r[22:22+19].replace('D','E'))
+        eph[ieph][sv].omg0 = float(r[41:41+19].replace('D','E'))
+        eph[ieph][sv].cis = float(r[60:60+19].replace('D','E'))
+        print('[r3]',r)
+        print('[r3]',eph[ieph][sv].toe.sec,eph[ieph][sv].cic,eph[ieph][sv].omg0,eph[ieph][sv].cis)
+
+        #// BROADCAST ORBIT 4
+        r = f.readline()
+        eph[ieph][sv].inc0 = float(r[3:3+19].replace('D','E'))
+        eph[ieph][sv].crc = float(r[22:22+19].replace('D','E'))
+        eph[ieph][sv].aop = float(r[41:41+19].replace('D','E'))
+        eph[ieph][sv].omgdot = float(r[60:60+19].replace('D','E'))
+        print('[r4]',r)
+        print('[r4]',eph[ieph][sv].inc0,eph[ieph][sv].crc,eph[ieph][sv].aop,eph[ieph][sv].omgdot)
+
+        #// BROADCAST ORBIT 5
+        r = f.readline()
+        eph[ieph][sv].idot = float(r[3:3+19].replace('D','E'))
+        eph[ieph][sv].codeL2 = float(r[22:22+19].replace('D','E'))
+        eph[ieph][sv].toe.week = float(r[41:41+19].replace('D','E'))
+        
+        print('[r5]',r)
+        print('[r5]',eph[ieph][sv].idot,eph[ieph][sv].codeL2,eph[ieph][sv].toe.week)
+
+        #// BROADCAST ORBIT 6
+        r = f.readline()
+        eph[ieph][sv].svhlth = int(float(r[22:22+19].replace('D','E')))
+        if eph[ieph][sv].svhlth>0 & eph[ieph][sv].svhlth<32:
+            eph[ieph][sv].svhlth += 32 # // Set MSB to 1
+
+        eph[ieph][sv].tgd = float(r[41:41+19].replace('D','E'))
+        eph[ieph][sv].iodc = float(r[60:60+19].replace('D','E'))
+        
+        print('[r6]',r)
+        print('[r6]',eph[ieph][sv].svhlth,eph[ieph][sv].tgd,eph[ieph][sv].iodc)
+
+        # Set valid flag
+        eph[ieph][sv].vflg = 1
+
+
+        #// Update the working variables
+        eph[ieph][sv].A = eph[ieph][sv].sqrta * eph[ieph][sv].sqrta
+        eph[ieph][sv].n = np.sqrt(GM_EARTH/(eph[ieph][sv].A*eph[ieph][sv].A*eph[ieph][sv].A)) + eph[ieph][sv].deltan
+        eph[ieph][sv].sq1e2 = np.sqrt(1.0 - eph[ieph][sv].ecc*eph[ieph][sv].ecc)
+        eph[ieph][sv].omgkdot = eph[ieph][sv].omgdot - OMEGA_EARTH
+        r = f.readline()
+
+
+
+
+
+
+
+    print("find")
+
+
 if __name__ == "__main__":
 
 
@@ -422,9 +761,22 @@ if __name__ == "__main__":
     print('\n--- Calculate satellite position ---\nN file:',args.file)
     print('Time correction =',args.timeCor,
           '\nIteration strategy =',args.iteration,'\n')
+    readRinexNavAll(args.file)
+
+    eph = [[Eph() for _ in range(EPHEM_ARRAY_SIZE)] for _ in range(MAX_SAT)]
+    print(eph[1][1].A)
+
+   # eph = [Eph() for x,y in zip(MAX_SAT, EPHEM_ARRAY_SIZE)]
+
     
-    data = gr.load(args.file)
-    df = data.to_dataframe()
+   # data = gr.load(args.file)
+   # df = data.to_dataframe()
+    
+    g0 = gpstime_t()
+    g0.sec = 0
+    
+    grx = incGpsTime(g0, 0.0)
+
     satp = np.zeros([1,3])
     for i in range(len(satp)):
 
