@@ -582,7 +582,7 @@ def date2gps(t):
     de = ye*365 + doy[t.m-1] + t.d + lpdays - 6
 
 	#// Convert time to GPS weeks and seconds.
-    g.week = de / 7
+    g.week = int( de / 7 )
     g.sec = (de%7)*SECONDS_IN_DAY + t.hh*SECONDS_IN_HOUR + t.mm*SECONDS_IN_MINUTE + t.sec
 
     return g
@@ -601,13 +601,14 @@ def readRinexNavAll(fname):
 
 
     f = open(fname,'r')
+    # Clear valid flag
     for ieph in range(EPHEM_ARRAY_SIZE):
         for sv in range(MAX_SAT):
             eph[ieph][sv].vflg = 0
     
     while True:
         r = f.readline()
-        print(r)
+        #print(r)
 
         if r.find('END OF HEADER') > 0:
             ionoutc.vflg = True
@@ -637,8 +638,9 @@ def readRinexNavAll(fname):
         elif r.find('LEAP SECONDS') > 0: 
             ionoutc.dtls = int(r[0:6]) 
 
-            print(ionoutc.dtls)  
-
+           # print(ionoutc.dtls)  
+            
+    ionoutc.vflg = True
     # Read ephemeris blocks
     g0.week = -1
     ieph = 0
@@ -656,7 +658,7 @@ def readRinexNavAll(fname):
         t.hh = int(r[12:14])
         t.mm = int(r[15:17])
         t.sec = float(r[18:22])
-        print(t)
+        #print(t)
 
         g = date2gps(t)
 
@@ -670,20 +672,22 @@ def readRinexNavAll(fname):
             ieph +=1
             if ieph >= EPHEM_ARRAY_SIZE:
                 break
+        # Date and time
+        eph[ieph][sv].t = t
         eph[ieph][sv].toc = g
         eph[ieph][sv].af0 = float(r[22:22+19].replace('D','E'))
         eph[ieph][sv].af1 = float(r[41:41+19].replace('D','E'))
         eph[ieph][sv].af2 = float(r[60:60+19].replace('D','E'))
 
-        print(eph[ieph][sv].af0,eph[ieph][sv].af1,eph[ieph][sv].af2)
+        #print(eph[ieph][sv].af0,eph[ieph][sv].af1,eph[ieph][sv].af2)
         #// BROADCAST ORBIT 1
         r = f.readline()
         eph[ieph][sv].iode = float(r[3:3+19].replace('D','E'))
         eph[ieph][sv].crs = float(r[22:22+19].replace('D','E'))
         eph[ieph][sv].deltan = float(r[41:41+19].replace('D','E'))
         eph[ieph][sv].m0 = float(r[60:60+19].replace('D','E'))
-        print('[r1]',r)
-        print('[r1]',eph[ieph][sv].iode,eph[ieph][sv].crs,eph[ieph][sv].deltan,eph[ieph][sv].m0)
+        #print('[r1]',r)
+        #print('[r1]',eph[ieph][sv].iode,eph[ieph][sv].crs,eph[ieph][sv].deltan,eph[ieph][sv].m0)
 
         #// BROADCAST ORBIT 2
         r = f.readline()
@@ -691,8 +695,8 @@ def readRinexNavAll(fname):
         eph[ieph][sv].ecc = float(r[22:22+19].replace('D','E'))
         eph[ieph][sv].cus = float(r[41:41+19].replace('D','E'))
         eph[ieph][sv].sqrta = float(r[60:60+19].replace('D','E'))
-        print('[r2]',r)
-        print('[r2]',eph[ieph][sv].cuc,eph[ieph][sv].ecc,eph[ieph][sv].cus,eph[ieph][sv].sqrta)
+        #print('[r2]',r)
+        #print('[r2]',eph[ieph][sv].cuc,eph[ieph][sv].ecc,eph[ieph][sv].cus,eph[ieph][sv].sqrta)
 
         #// BROADCAST ORBIT 3
         r = f.readline()
@@ -700,8 +704,8 @@ def readRinexNavAll(fname):
         eph[ieph][sv].cic = float(r[22:22+19].replace('D','E'))
         eph[ieph][sv].omg0 = float(r[41:41+19].replace('D','E'))
         eph[ieph][sv].cis = float(r[60:60+19].replace('D','E'))
-        print('[r3]',r)
-        print('[r3]',eph[ieph][sv].toe.sec,eph[ieph][sv].cic,eph[ieph][sv].omg0,eph[ieph][sv].cis)
+        #print('[r3]',r)
+        #print('[r3]',eph[ieph][sv].toe.sec,eph[ieph][sv].cic,eph[ieph][sv].omg0,eph[ieph][sv].cis)
 
         #// BROADCAST ORBIT 4
         r = f.readline()
@@ -709,8 +713,8 @@ def readRinexNavAll(fname):
         eph[ieph][sv].crc = float(r[22:22+19].replace('D','E'))
         eph[ieph][sv].aop = float(r[41:41+19].replace('D','E'))
         eph[ieph][sv].omgdot = float(r[60:60+19].replace('D','E'))
-        print('[r4]',r)
-        print('[r4]',eph[ieph][sv].inc0,eph[ieph][sv].crc,eph[ieph][sv].aop,eph[ieph][sv].omgdot)
+        #print('[r4]',r)
+        #print('[r4]',eph[ieph][sv].inc0,eph[ieph][sv].crc,eph[ieph][sv].aop,eph[ieph][sv].omgdot)
 
         #// BROADCAST ORBIT 5
         r = f.readline()
@@ -718,8 +722,8 @@ def readRinexNavAll(fname):
         eph[ieph][sv].codeL2 = float(r[22:22+19].replace('D','E'))
         eph[ieph][sv].toe.week = float(r[41:41+19].replace('D','E'))
         
-        print('[r5]',r)
-        print('[r5]',eph[ieph][sv].idot,eph[ieph][sv].codeL2,eph[ieph][sv].toe.week)
+        #print('[r5]',r)
+        #print('[r5]',eph[ieph][sv].idot,eph[ieph][sv].codeL2,eph[ieph][sv].toe.week)
 
         #// BROADCAST ORBIT 6
         r = f.readline()
@@ -730,8 +734,8 @@ def readRinexNavAll(fname):
         eph[ieph][sv].tgd = float(r[41:41+19].replace('D','E'))
         eph[ieph][sv].iodc = float(r[60:60+19].replace('D','E'))
         
-        print('[r6]',r)
-        print('[r6]',eph[ieph][sv].svhlth,eph[ieph][sv].tgd,eph[ieph][sv].iodc)
+        #print('[r6]',r)
+        #print('[r6]',eph[ieph][sv].svhlth,eph[ieph][sv].tgd,eph[ieph][sv].iodc)
 
         # Set valid flag
         eph[ieph][sv].vflg = 1
@@ -744,28 +748,79 @@ def readRinexNavAll(fname):
         eph[ieph][sv].omgkdot = eph[ieph][sv].omgdot - OMEGA_EARTH
         r = f.readline()
 
+    f.close()
 
-
-
-
-
-
-    print("find")
-
+    if g0.week >= 0:
+        ieph +=1
+    
+    return ieph, eph, ionoutc
 
 if __name__ == "__main__":
+    USER_MOTION_SIZE = 3000
+    verb = True
+    gmin = gpstime_t()
+    gmax = gpstime_t()
+    t0 = datetime_t()
+    tmin = datetime_t()
+    tmax = datetime_t()
+    g0 = gpstime_t()
+    timeoverwrite = False # // Overwrite the TOC and TOE in the RINEX file
+    iduration = USER_MOTION_SIZE;
+    numd = iduration
 
-
-    
     args.file = "brdc0730.24n"
     print('\n--- Calculate satellite position ---\nN file:',args.file)
-    print('Time correction =',args.timeCor,
-          '\nIteration strategy =',args.iteration,'\n')
-    readRinexNavAll(args.file)
 
-    eph = [[Eph() for _ in range(EPHEM_ARRAY_SIZE)] for _ in range(MAX_SAT)]
-    print(eph[1][1].A)
+    neph, eph, ionoutc = readRinexNavAll(args.file)
 
+    if neph == 0:
+        print("ERROR: No ephemeris available.\n")
+        exit
+    elif neph == -1:
+        print("ERROR: ephemeris file not found.\n")
+        exit
+    
+    if verb == True & ionoutc.vflg == True:
+        print("ionoutc.alpha0, ionoutc.alpha1, ionoutc.alpha2, ionoutc.alpha3\n"
+              ,ionoutc.alpha0, ionoutc.alpha1, ionoutc.alpha2, ionoutc.alpha3 )
+        print("ionoutc.beta0, ionoutc.beta1, ionoutc.beta2, ionoutc.beta3\n",
+              ionoutc.beta0, ionoutc.beta1, ionoutc.beta2, ionoutc.beta3)
+        print("ionoutc.A0, ionoutc.A1, ionoutc.tot, ionoutc.wnt\n",
+               ionoutc.A0, ionoutc.A1, ionoutc.tot, ionoutc.wnt)
+        print("ionoutc.dtls\n",ionoutc.dtls)
+
+    for sv in range(MAX_SAT):
+        if eph[0][sv].vflg == 1:
+            gmin = eph[0][sv].toc
+            tmin = eph[0][sv].t
+            break
+
+    gmax.sec = 0
+    gmax.week = 0
+    tmax.sec = 0
+    tmax.mm = 0
+    tmax.hh = 0
+    tmax.d = 0
+    tmax.m = 0
+    tmax.y = 0
+
+    for sv in range(MAX_SAT):
+        if eph[neph-1][sv].vflg ==1:
+            gmax = eph[neph-1][sv].toc
+            tmax = eph[neph-1][sv].t
+
+            break
+
+    if g0.week >= 0:
+        if timeoverwrite == True:
+            gtmp = gpstime_t()
+    else:
+        g0 = gmin
+        t0 = tmin
+
+    print("Start time = ",t0.y,'/', t0.m,'/', t0.d,' ', t0.hh,':', t0.mm,':',
+           t0.sec,'(', g0.week,':', g0.sec,')\n')
+    print("Duration = ",numd/10.0,'[sec]\n')
    # eph = [Eph() for x,y in zip(MAX_SAT, EPHEM_ARRAY_SIZE)]
 
     
