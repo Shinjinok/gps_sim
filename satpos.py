@@ -31,6 +31,8 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
+import struct
+import time
 
 CA_SEQ_LEN = 1023
 N_DWRD_SBF = 10
@@ -629,7 +631,7 @@ def allocateChannel(eph, ionoutc, grx, xyz, elvMask):
                         r_ref = rho.range
 
                         phase_ini = 0.0 # TODO: Must initialize properly
-                        phase_ini = (2.0*r_ref - r_xyz)/LAMBDA_L1
+                        #phase_ini = (2.0*r_ref - r_xyz)/LAMBDA_L1
 
                         phase_ini -= math.floor(phase_ini)
                         chan[i].carr_phase = int(512.0 * 65536.0 * phase_ini)
@@ -719,9 +721,9 @@ def subVect(x1, x2):
 
 def satpos(eph, g):
    
-    pos=np.zeros(3)
-    vel=np.zeros(3)
-    clk=np.zeros(3)
+    pos=[0,0,0]
+    vel=[0,0,0]
+    clk=[0,0,0]
 
     deltan = eph.deltan
     tk = g.sec - eph.toe.sec
@@ -1030,6 +1032,38 @@ def subGpsTime(g1,g0):
     dt += (g1.week - g0.week) * SECONDS_IN_WEEK
     return dt
 
+CODE_FREQ = (1.023e6)
+CARR_TO_CODE = (1.0/1540.0)
+CA_SEQ_LEN = 1023
+def computeCodePhase(rho1,chan,dt):
+    # Pseudorange rate.
+    rhorate = (rho1.range - chan.rho0.range)/dt
+
+    # Carrier and code frequency.
+    chan.f_carr = -rhorate/LAMBDA_L1
+    chan.f_code = CODE_FREQ + chan.f_carr*CARR_TO_CODE
+
+    # Initial code phase and data bit counters.
+    ms = (subGpsTime(chan.rho0.g,chan.g0) + 6.0 - chan.rho0.range/SPEED_OF_LIGHT)*1000.0
+
+    ims = int(ms)
+    chan.code_phase = (ms-ims)*CA_SEQ_LEN # in chip
+
+    chan.iword = int(ims/600) # 1 word = 30 bits = 600 ms
+    ims -= chan.iword*600
+            
+    chan.ibit = int(ims/20) # 1 bit = 20 code = 20 ms
+    ims -= chan.ibit*20
+
+    chan.icode = ims # 1 code = 1 ms
+
+    chan.codeCA = int(chan.ca[int(chan.code_phase)]*2-1)
+    chan.dataBit = int((int(chan.dwrd[int(chan.iword)]) >> (29-int(chan.ibit))) & 0x1)*2-1
+
+    # Save current pseudorange
+    chan.rho0 = rho1
+    return chan
+
 def readRinexNavAll(fname):
     eph = [[Eph() for _ in range(MAX_SAT)] for _ in range(EPHEM_ARRAY_SIZE)]
     ionoutc = ionoutc_t()
@@ -1194,6 +1228,71 @@ def readRinexNavAll(fname):
         ieph +=1
     
     return ieph, eph, ionoutc
+sinTable512 = [2,   5,   8,  11,  14,  17,  20,  23,  26,  29,  32,  35,  38,  41,  44,  47,
+	  50,  53,  56,  59,  62,  65,  68,  71,  74,  77,  80,  83,  86,  89,  91,  94,
+	  97, 100, 103, 105, 108, 111, 114, 116, 119, 122, 125, 127, 130, 132, 135, 138,
+	 140, 143, 145, 148, 150, 153, 155, 157, 160, 162, 164, 167, 169, 171, 173, 176,
+	 178, 180, 182, 184, 186, 188, 190, 192, 194, 196, 198, 200, 202, 204, 205, 207,
+	 209, 210, 212, 214, 215, 217, 218, 220, 221, 223, 224, 225, 227, 228, 229, 230,
+	 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 241, 242, 243, 244, 244, 245,
+	 245, 246, 247, 247, 248, 248, 248, 249, 249, 249, 249, 250, 250, 250, 250, 250,
+	 250, 250, 250, 250, 250, 249, 249, 249, 249, 248, 248, 248, 247, 247, 246, 245,
+	 245, 244, 244, 243, 242, 241, 241, 240, 239, 238, 237, 236, 235, 234, 233, 232,
+	 230, 229, 228, 227, 225, 224, 223, 221, 220, 218, 217, 215, 214, 212, 210, 209,
+	 207, 205, 204, 202, 200, 198, 196, 194, 192, 190, 188, 186, 184, 182, 180, 178,
+	 176, 173, 171, 169, 167, 164, 162, 160, 157, 155, 153, 150, 148, 145, 143, 140,
+	 138, 135, 132, 130, 127, 125, 122, 119, 116, 114, 111, 108, 105, 103, 100,  97,
+	  94,  91,  89,  86,  83,  80,  77,  74,  71,  68,  65,  62,  59,  56,  53,  50,
+	  47,  44,  41,  38,  35,  32,  29,  26,  23,  20,  17,  14,  11,   8,   5,   2,
+	  -2,  -5,  -8, -11, -14, -17, -20, -23, -26, -29, -32, -35, -38, -41, -44, -47,
+	 -50, -53, -56, -59, -62, -65, -68, -71, -74, -77, -80, -83, -86, -89, -91, -94,
+	 -97,-100,-103,-105,-108,-111,-114,-116,-119,-122,-125,-127,-130,-132,-135,-138,
+	-140,-143,-145,-148,-150,-153,-155,-157,-160,-162,-164,-167,-169,-171,-173,-176,
+	-178,-180,-182,-184,-186,-188,-190,-192,-194,-196,-198,-200,-202,-204,-205,-207,
+	-209,-210,-212,-214,-215,-217,-218,-220,-221,-223,-224,-225,-227,-228,-229,-230,
+	-232,-233,-234,-235,-236,-237,-238,-239,-240,-241,-241,-242,-243,-244,-244,-245,
+	-245,-246,-247,-247,-248,-248,-248,-249,-249,-249,-249,-250,-250,-250,-250,-250,
+	-250,-250,-250,-250,-250,-249,-249,-249,-249,-248,-248,-248,-247,-247,-246,-245,
+	-245,-244,-244,-243,-242,-241,-241,-240,-239,-238,-237,-236,-235,-234,-233,-232,
+	-230,-229,-228,-227,-225,-224,-223,-221,-220,-218,-217,-215,-214,-212,-210,-209,
+	-207,-205,-204,-202,-200,-198,-196,-194,-192,-190,-188,-186,-184,-182,-180,-178,
+	-176,-173,-171,-169,-167,-164,-162,-160,-157,-155,-153,-150,-148,-145,-143,-140,
+	-138,-135,-132,-130,-127,-125,-122,-119,-116,-114,-111,-108,-105,-103,-100, -97,
+	 -94, -91, -89, -86, -83, -80, -77, -74, -71, -68, -65, -62, -59, -56, -53, -50,
+	 -47, -44, -41, -38, -35, -32, -29, -26, -23, -20, -17, -14, -11,  -8,  -5,  -2]
+
+cosTable512 = [250, 250, 250, 250, 250, 249, 249, 249, 249, 248, 248, 248, 247, 247, 246, 245,
+	 245, 244, 244, 243, 242, 241, 241, 240, 239, 238, 237, 236, 235, 234, 233, 232,
+	 230, 229, 228, 227, 225, 224, 223, 221, 220, 218, 217, 215, 214, 212, 210, 209,
+	 207, 205, 204, 202, 200, 198, 196, 194, 192, 190, 188, 186, 184, 182, 180, 178,
+	 176, 173, 171, 169, 167, 164, 162, 160, 157, 155, 153, 150, 148, 145, 143, 140,
+	 138, 135, 132, 130, 127, 125, 122, 119, 116, 114, 111, 108, 105, 103, 100,  97,
+	  94,  91,  89,  86,  83,  80,  77,  74,  71,  68,  65,  62,  59,  56,  53,  50,
+	  47,  44,  41,  38,  35,  32,  29,  26,  23,  20,  17,  14,  11,   8,   5,   2,
+	  -2,  -5,  -8, -11, -14, -17, -20, -23, -26, -29, -32, -35, -38, -41, -44, -47,
+	 -50, -53, -56, -59, -62, -65, -68, -71, -74, -77, -80, -83, -86, -89, -91, -94,
+	 -97,-100,-103,-105,-108,-111,-114,-116,-119,-122,-125,-127,-130,-132,-135,-138,
+	-140,-143,-145,-148,-150,-153,-155,-157,-160,-162,-164,-167,-169,-171,-173,-176,
+	-178,-180,-182,-184,-186,-188,-190,-192,-194,-196,-198,-200,-202,-204,-205,-207,
+	-209,-210,-212,-214,-215,-217,-218,-220,-221,-223,-224,-225,-227,-228,-229,-230,
+	-232,-233,-234,-235,-236,-237,-238,-239,-240,-241,-241,-242,-243,-244,-244,-245,
+	-245,-246,-247,-247,-248,-248,-248,-249,-249,-249,-249,-250,-250,-250,-250,-250,
+	-250,-250,-250,-250,-250,-249,-249,-249,-249,-248,-248,-248,-247,-247,-246,-245,
+	-245,-244,-244,-243,-242,-241,-241,-240,-239,-238,-237,-236,-235,-234,-233,-232,
+	-230,-229,-228,-227,-225,-224,-223,-221,-220,-218,-217,-215,-214,-212,-210,-209,
+	-207,-205,-204,-202,-200,-198,-196,-194,-192,-190,-188,-186,-184,-182,-180,-178,
+	-176,-173,-171,-169,-167,-164,-162,-160,-157,-155,-153,-150,-148,-145,-143,-140,
+	-138,-135,-132,-130,-127,-125,-122,-119,-116,-114,-111,-108,-105,-103,-100, -97,
+	 -94, -91, -89, -86, -83, -80, -77, -74, -71, -68, -65, -62, -59, -56, -53, -50,
+	 -47, -44, -41, -38, -35, -32, -29, -26, -23, -20, -17, -14, -11,  -8,  -5,  -2,
+	   2,   5,   8,  11,  14,  17,  20,  23,  26,  29,  32,  35,  38,  41,  44,  47,
+	  50,  53,  56,  59,  62,  65,  68,  71,  74,  77,  80,  83,  86,  89,  91,  94,
+	  97, 100, 103, 105, 108, 111, 114, 116, 119, 122, 125, 127, 130, 132, 135, 138,
+	 140, 143, 145, 148, 150, 153, 155, 157, 160, 162, 164, 167, 169, 171, 173, 176,
+	 178, 180, 182, 184, 186, 188, 190, 192, 194, 196, 198, 200, 202, 204, 205, 207,
+	 209, 210, 212, 214, 215, 217, 218, 220, 221, 223, 224, 225, 227, 228, 229, 230,
+	 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 241, 242, 243, 244, 244, 245,
+	 245, 246, 247, 247, 248, 248, 248, 249, 249, 249, 249, 250, 250, 250, 250, 250]
 
 if __name__ == "__main__":
     USER_MOTION_SIZE = 3000
@@ -1302,7 +1401,7 @@ if __name__ == "__main__":
     ########################################################
     # Buffer size
     samp_freq = 2.6e6	
-    iq_buff_size = int(samp_freq/10.0)# samples per 0.1sec
+    iq_buff_size = int(np.floor(samp_freq/10.0))# samples per 0.1sec
 
     delt = 1.0/samp_freq
 
@@ -1327,7 +1426,127 @@ if __name__ == "__main__":
         if chan[i].prn > 0:
             print("{:2d}, {:6.1f}, {:5.1f}, {:11.1f}, {:5.1f}".format(chan[i].prn, chan[i].azel[0]*R2D, chan[i].azel[1]*R2D, chan[i].rho0.d, chan[i].rho0.iono_delay))
 
+    ########################################################
+    #   Receiver antenna gain pattern
+    ########################################################
+    ant_pat = np.zeros(37)
+    ant_pat_db = [0.00,  0.00,  0.22,  0.44,  0.67,  1.11,  1.56,  2.00,  2.44,  2.89,  3.56,  4.22,
+	            4.89,  5.56,  6.22,  6.89,  7.56,  8.22,  8.89,  9.78, 10.67, 11.56, 12.44, 13.33,
+                14.44, 15.56, 16.67, 17.78, 18.89, 20.00, 21.33, 22.67, 24.00, 25.56, 27.33, 29.33,
+                31.56]
+    for i in range(37):
+        ant_pat[i] = np.power(10.0, -ant_pat_db[i]/20.0)
 
+    ########################################################
+    #   Generate baseband signals
+    ########################################################
+
+    # Update receiver time
+    grx = incGpsTime(grx, 0.1)
+
+    gain = [0 for i in range(MAX_CHAN)]
+    
+    
+    for iumd in range(numd):
+        for i in range(MAX_CHAN):
+            if chan[i].prn > 0:
+                #Refresh code phase and data bit counters
+                #rho = range_t()
+                sv = chan[i].prn - 1
+                # Current pseudorange
+                rho =  computeRange(eph[ieph][sv], ionoutc, grx, xyz)
+                chan[i].azel[0] = rho.azel[0]
+                chan[i].azel[1] = rho.azel[1]
+                # Update code phase and data bit counters
+                chan[i] = computeCodePhase(rho,chan[i], 0.1)
+                chan[i].carr_phasestep = int(np.round(512.0 * 65536.0 * chan[i].f_carr * delt))
+                # Path loss
+                path_loss = 20200000.0/rho.d
+                # Receiver antenna gain
+                ibs = (int)((90.0-rho.azel[1]*R2D)/5.0) #covert elevation to boresight
+                ant_gain = ant_pat[ibs]
+                # Signal gain
+                gain[i] = (int)(path_loss * ant_gain * 128.0) # scaled by 2^7
+        b = bytes()
+        start = time.clock_gettime(time.CLOCK_REALTIME)        
+        for isamp in range(iq_buff_size):
+            i_acc = 0
+            q_acc = 0
+            for i in range(MAX_CHAN):
+                if chan[i].prn > 0:
+                    iTable = (chan[i].carr_phase >> 16) & 0x1ff # 9-bit index
+                    ip = chan[i].dataBit * chan[i].codeCA * cosTable512[iTable] * gain[i]
+                    qp = chan[i].dataBit * chan[i].codeCA * sinTable512[iTable] * gain[i]
+                    # Accumulate for all visible satellites
+                    i_acc += ip
+                    q_acc += qp
+                    # Update code phase
+                    chan[i].code_phase += chan[i].f_code * delt
+                    if chan[i].code_phase>=CA_SEQ_LEN:
+                        chan[i].code_phase -= CA_SEQ_LEN
+                        chan[i].icode += 1
+                        if chan[i].icode>=20: #20 C/A codes = 1 navigation data bit
+                            chan[i].icode = 0
+                            chan[i].ibit += 1
+                            if chan[i].ibit>=30: # 30 navigation data bits = 1 word
+                                chan[i].ibit = 0
+                                chan[i].iword +=1
+                            # Set new navigation data bit
+                            chan[i].dataBit = ((int(chan[i].dwrd[chan[i].iword]) >> (29-chan[i].ibit)) & 0x1)*2 - 1
+                    # Set current code chip
+                    chan[i].codeCA = chan[i].ca[int(chan[i].code_phase)]*2-1
+                    # Update carrier phase
+                    chan[i].carr_phase += chan[i].carr_phasestep
+            # Scaled by 2^7
+            i_acc = int(i_acc + 64) >> 7
+            q_acc = int(q_acc + 64) >> 7
+            #b += struct.pack('<hh',i_acc,q_acc)
+            #print("remain count = {:d}".format(iq_buff_size-isamp),time.clock_gettime(time.CLOCK_REALTIME)-start ,end='\r')
+        print("\rTime into run = {:4.1f}".format(subGpsTime(grx, g0)),
+                            time.clock_gettime(time.CLOCK_REALTIME)-start)
+        fout.write(b)
+
+            #
+            # Update navigation message and channel allocation every 30 seconds
+            #
+
+        igrx = (int)(grx.sec*10.0+0.5)
+        if igrx%300==0: # Every 30 seconds
+            # Update navigation message
+            for i in range(MAX_CHAN):
+                if (chan[i].prn>0):
+                    chan[i] = generateNavMsg(grx, chan[i], 0)
+            # Refresh ephemeris and subframes
+            # Quick and dirty fix. Need more elegant way.
+            for sv in range(MAX_SAT):
+                if (eph[ieph+1][sv].vflg==1):
+                    dt = subGpsTime(eph[ieph+1][sv].toc, grx)
+                    if (dt<SECONDS_IN_HOUR):
+                        ieph += 1
+                        for i in range(MAX_CHAN):
+                            # Generate new subframes if allocated
+                            if (chan[i].prn!=0): 
+                                chan[i].sbf = eph2sbf(eph[ieph][chan[i].prn-1], ionoutc)
+                    break
+            # Update channel allocation
+            chan = allocateChannel(eph[ieph], ionoutc, grx, xyz, elvmask)
+
+                # Show details about simulated channels
+            if (verb==True):
+                print("\n")
+                for i in range(MAX_CHAN):
+                    if chan[i].prn > 0:
+                        print("{:2d}, {:6.1f}, {:5.1f}, {:11.1f}, {:5.1f}".format(
+                            chan[i].prn, chan[i].azel[0]*R2D, chan[i].azel[1]*R2D, chan[i].rho0.d, chan[i].rho0.iono_delay))
+
+        # Update receiver time
+        grx = incGpsTime(grx, 0.1);
+        # Update time counter
+        
+    print("____Done______")
+    fout.close()
+    #fflush(stdout);
+            
 
    # iq_buff = calloc(2*iq_buff_size, 2)
 
