@@ -185,10 +185,10 @@ def computeRange(eph, ionoutc, grx, xyz):
     rho.range = range - SPEED_OF_LIGHT*clk[0]
 
     # Relative velocity of SV and receiver.
-    rate = np.dot(vel, los)/range
+    #rate = vel.dot(los)/range
 
     # Pseudorange rate.
-    rho.rate = rate # - SPEED_OF_LIGHT*clk[1]
+    rho.rate = vel.dot(los)/range - SPEED_OF_LIGHT*clk[1]
 
     # Time of application.
     rho.g = grx
@@ -196,7 +196,8 @@ def computeRange(eph, ionoutc, grx, xyz):
     # Azimuth and elevation angles.
     llh = xyz2llh(xyz)
     tmat = ltcmat(llh)
-    neu = ecef2neu(los, tmat)
+    #neu = ecef2neu(los, tmat)
+    neu = tmat.dot(llh) 
     rho.azel = neu2azel(neu)
 
     # Add ionospheric delay
@@ -252,6 +253,7 @@ def ionosphericDelay(ionoutc, g, llh, azel):
         iono_delay = F*5.0e-9*SPEED_OF_LIGHT
     
     return iono_delay
+
 def codegen(prn):
 
     ca = np.zeros(CA_SEQ_LEN)
@@ -647,7 +649,7 @@ def incGpsTime(g0, dt):
         g1.sec -= SECONDS_IN_WEEK
         g1.week += 1
 
-    while  g1.sec < 0.0:
+    while  g0.sec < 0.0:
 
         g1.sec += SECONDS_IN_WEEK
         g1.week -= 1
@@ -672,13 +674,14 @@ def checkSatVisibility(eph_, g, xyz, elvMask):
     return 0 , azel
 
 def neu2azel(neu):
-    azel = np.zeros(2)
-    azel[0] = np.arctan2(neu[1],neu[0])
+    #azel = np.zeros(2)
+    azel = [np.arctan2(neu[1],neu[0]),
+            np.arctan2(neu[2], np.linalg.norm(neu[:2]))]
     if azel[0] < 0.0:
-        azel[0] += (2.0*np.pi)
+        azel[0] += (2.0*PI)
 
-    ne = np.sqrt(neu[0]*neu[0] + neu[1]*neu[1])
-    azel[1] = np.arctan2(neu[2], ne)
+    #ne = np.linalg.norm(neu[:2])
+    #azel[1] = np.arctan2(neu[2], np.linalg.norm(neu[:2]))
     return azel
 
 def ecef2neu(xyz,t):
@@ -827,22 +830,16 @@ def ltcmat(llh):
     t[2][2] = slat """
 
     return t
+a = WGS84_RADIUS
+e = WGS84_ECCENTRICITY
 e2 = WGS84_ECCENTRICITY * WGS84_ECCENTRICITY
-
+eps = 1.0e-3
 def xyz2llh(xyz):
-
-    a = WGS84_RADIUS
-    #e = WGS84_ECCENTRICITY
-
-    eps = 1.0e-3
-    #e2 = e*e
-
-    llh=np.zeros(3)
+    
+    #llh=np.zeros(3)
     if np.linalg.norm(xyz) < eps:
         #Invalid ECEF vector
-        llh[0] = 0.0
-        llh[1] = 0.0
-        llh[2] = -a
+        llh=[ 0.0, 0.0, -a]
 
         return llh
 
@@ -866,16 +863,16 @@ def xyz2llh(xyz):
         dz = dz_new
 
 
-    llh[0] = np.arctan2(zdz, np.sqrt(rho2))
-    llh[1] = np.arctan2(y, x)
-    llh[2] = nh - n
+    llh= [np.arctan2(zdz, np.sqrt(rho2)),
+           np.arctan2(y, x),
+           nh - n]
 
     return llh
 
 def llh2xyz(llh):
-    a = WGS84_RADIUS
-    e = WGS84_ECCENTRICITY
-    e2 = e*e
+    #a = WGS84_RADIUS
+    #e = WGS84_ECCENTRICITY
+    #e2 = e*e
     clat = np.cos(llh[0])
     slat = np.sin(llh[0])
     clon = np.cos(llh[1])
@@ -886,10 +883,7 @@ def llh2xyz(llh):
     nph = n + llh[2]
 
     tmp = nph*clat
-    xyz = np.zeros(3)
-    xyz[0] = tmp*clon
-    xyz[1] = tmp*slon
-    xyz[2]= ((1.0-e2)*n + llh[2])*slat
+    xyz = [tmp*clon, tmp*slon, ((1.0-e2)*n + llh[2])*slat]
 
     return xyz
 
@@ -1028,6 +1022,7 @@ def date2gps(t):
     return g
 
 def subGpsTime(g1,g0):
+
     dt = g1.sec - g0.sec
     dt += (g1.week - g0.week) * SECONDS_IN_WEEK
     return dt
@@ -1313,7 +1308,7 @@ def cal_acc(chan,ch):
     for isamp in range(iq_buff_size):
         iTable = (chan.carr_phase >> 16) & 0x1ff # 9-bit index
         a[ch][isamp] = chan.dataBit
-        b[ch][isamp]= chan.codeCA
+        b[ch][isamp] = chan.codeCA
         c[ch][isamp] = cosTable512[iTable]
         s[ch][isamp] = sinTable512[iTable]
         #d[isamp] = gain
@@ -1336,4 +1331,6 @@ def cal_acc(chan,ch):
         chan.carr_phase += chan.carr_phasestep
     #out = [a,b,c,s]
     #result_queue.put(a)
+
+
         
