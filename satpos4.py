@@ -35,7 +35,7 @@ N_DWRD_SBF = 10
 N_SBF = 5
 N_DWRD = (N_SBF+1)*N_DWRD_SBF
 R2D = 57.2957795131
-
+PI = np.pi
 
 WGS84_RADIUS =	6378137.0
 WGS84_ECCENTRICITY = 0.0818191908426
@@ -52,7 +52,7 @@ GM = 3.986005*np.power(10.0,14)
 c = 2.99792458*np.power(10.0,8)
 omegae_dot = 7.2921151467*np.power(10.0,-5)
 
-earth_rate = 2*np.pi/(60*60*24)
+earth_rate = 2*PI/(60*60*24)
 
 
 SPEED_OF_LIGHT = 2.99792458e8
@@ -92,7 +92,7 @@ print("llh = ",llh[0]*R2D,llh[1]*R2D,llh[2],'\n')
 ## Read ephemeris ##
 ####################
 
-file = "brdc0730.24n"
+file = "brdc1030.24n"
 print('\n--- Calculate satellite position ---\nN file:',file)
 
 neph, eph, ionoutc = rc.readRinexNavAll(file)
@@ -185,12 +185,12 @@ grx = rc.incGpsTime(g0, 0.0)
 
 # Allocate visible satellites
 elvmask = 0.0
-chan = rc.allocateChannel(eph[ieph], ionoutc, grx, xyz, elvmask)
+rc.allocateChannel(eph[ieph], ionoutc, grx, xyz, elvmask)
 CHAN = 0
 for i in range(MAX_CHAN):
-    if chan[i].prn > 0:
+    if rc.chan[i].prn > 0:
         CHAN += 1
-        print("{:2d}, {:6.1f}, {:5.1f}, {:11.1f}, {:5.1f}".format(chan[i].prn, chan[i].azel[0]*R2D, chan[i].azel[1]*R2D, chan[i].rho0.d, chan[i].rho0.iono_delay))
+        print("{:2d}, {:6.1f}, {:5.1f}, {:11.1f}, {:5.1f}".format(rc.chan[i].prn, rc.chan[i].azel[0]*R2D, rc.chan[i].azel[1]*R2D, rc.chan[i].rho0.d, rc.chan[i].rho0.iono_delay))
 
 ########################################################
 #   Receiver antenna gain pattern
@@ -212,7 +212,7 @@ grx = rc.incGpsTime(grx, 0.1)
 
 
 gain = np.zeros(CHAN)
-bout = bytearray(iq_buff_size*4)
+bout = bytearray(4)
 
 for iumd in range(numd):
     
@@ -221,54 +221,48 @@ for iumd in range(numd):
         #if chan[i].prn > 0:
         #Refresh code phase and data bit counters
         #rho = range_t()
-        sv = chan[i].prn - 1
+        sv = rc.chan[i].prn - 1
         # Current pseudorange
         rho =  rc.computeRange(eph[ieph][sv], ionoutc, grx, xyz)
-        chan[i].azel = rho.azel
+        rc.chan[i].azel = rho.azel
         
         # Update code phase and data bit counters
-        chan[i] = rc.computeCodePhase(rho,chan[i], 0.1)
-        chan[i].carr_phasestep = int(np.round(512.0 * 65536.0 * chan[i].f_carr * delt))
+        rc.computeCodePhase(rho,i, 0.1)
+        rc.chan[i].carr_phasestep = int(np.round(512.0 * 65536.0 * rc.chan[i].f_carr * delt))
         # Path loss
         path_loss = 20200000.0/rho.d
         # Receiver antenna gain
-        ibs = (int)((90.0-rho.azel[1]*R2D)/5.0) #covert elevation to boresight
+        ibs = int((90.0-rho.azel[1]*R2D)/5.0) #covert elevation to boresight
         ant_gain = ant_pat[ibs]
         # Signal gain
-        gain[i] = (int)(path_loss * ant_gain * 128.0) # scaled by 2^7
+        gain[i] = int(path_loss * ant_gain * 128.0) # scaled by 2^7
     
-    
+    start2 = time.clock_gettime(time.CLOCK_REALTIME)
     procs = []
 
     for index in range(CHAN):
-        proc  = Process(target=rc.cal_acc, args=(chan[index],index))
+        proc  = Process(target=rc.cal_acc, args=(index,))
         procs.append(proc)
         proc.start()
 
     for proc in procs:
         proc.join()
 
-    #ip_2 = rc.a[:CHAN][:] * rc.b[:CHAN][:]
-    ip_ =  rc.a[:CHAN][:] * rc.b[:CHAN][:] * np.reshape(gain,(CHAN,1))
-    ip  = ip_ * rc.c[:CHAN][:]
-    qp =  ip_ * rc.s[:CHAN][:]
+    start3 = time.clock_gettime(time.CLOCK_REALTIME)
+    abg =  rc.a[:CHAN] * rc.b[:CHAN] * np.reshape(gain,(CHAN,1))
+    ip  = abg * rc.c[:CHAN]
+    qp =  abg * rc.s[:CHAN]
     sum_ip = sum(ip)
     sum_qp = sum(qp)
     
-    for isamp in range(0,iq_buff_size,4):
-        i_acc = int(sum_ip[isamp]) >> 7
-        q_acc = int(sum_qp[isamp]) >> 7
-        # Scaled by 2^7
-        i_acc +=  1
-        q_acc +=  1
-         
-        #bout[isamp] += struct.pack('<hh',i_acc,q_acc)
-        bout[isamp] = i_acc & 0xff
-        bout[isamp+1] = (i_acc >> 8) & 0xff
-        bout[isamp+2] = q_acc & 0xff
-        bout[isamp+3] = (q_acc >> 8) & 0xff
+    start4= time.clock_gettime(time.CLOCK_REALTIME)
+    for isamp in range(iq_buff_size):
+        #i_acc = np.right_shift(int(sum_ip2),7)
+        i_acc = int(sum_ip[isamp]+64) >> 11 
+        q_acc = int(sum_qp[isamp]+64) >> 11 
+        b_out = struct.pack('<bb',i_acc,q_acc)
+        fout.write(b_out)
 
-    fout.write(bout)
         #
         # Update navigation message and channel allocation every 30 seconds
         #
@@ -278,8 +272,8 @@ for iumd in range(numd):
         
         # Update navigation message
         for i in range(MAX_CHAN):
-            if (chan[i].prn>0):
-                chan[i] = rc.generateNavMsg(grx, chan[i], 0)
+            if (rc.chan[i].prn>0):
+                rc.chan[i] = rc.generateNavMsg(grx, rc.chan[i], 0)
         # Refresh ephemeris and subframes
         # Quick and dirty fix. Need more elegant way.
         for sv in range(MAX_SAT):
@@ -289,11 +283,11 @@ for iumd in range(numd):
                     ieph += 1
                     for i in range(MAX_CHAN):
                         # Generate new subframes if allocated
-                        if (chan[i].prn!=0): 
-                            chan[i].sbf = rc.eph2sbf(eph[ieph][chan[i].prn-1], ionoutc)
+                        if (rc.chan[i].prn!=0): 
+                            rc.chan[i].sbf = rc.eph2sbf(eph[ieph][rc.chan[i].prn-1], ionoutc)
                 break
         # Update channel allocation
-        chan = rc.allocateChannel(eph[ieph], ionoutc, grx, xyz, elvmask)
+        rc.allocateChannel(eph[ieph], ionoutc, grx, xyz, elvmask)
 
             # Show details about simulated channels
         verb = True
@@ -301,15 +295,17 @@ for iumd in range(numd):
             print("\n")
             CHAN = 0
             for i in range(MAX_CHAN):
-                if chan[i].prn > 0:
+                if rc.chan[i].prn > 0:
                     CHAN += 1
                     print("{:2d}, {:6.1f}, {:5.1f}, {:11.1f}, {:5.1f}".format(
-                        chan[i].prn, chan[i].azel[0]*R2D, chan[i].azel[1]*R2D, chan[i].rho0.d, chan[i].rho0.iono_delay))
+                        rc.chan[i].prn, rc.chan[i].azel[0]*R2D, rc.chan[i].azel[1]*R2D, rc.chan[i].rho0.d, rc.chan[i].rho0.iono_delay))
             gain = np.zeros(CHAN)
     # Update receiver time
     grx = rc.incGpsTime(grx, 0.1)
     # Update time counter
-    print("\rTime into run = {:4.1f} takes {:3.3f}sec".format(rc.subGpsTime(grx, g0),time.clock_gettime(time.CLOCK_REALTIME)-start))
+    end = time.clock_gettime(time.CLOCK_REALTIME)
+    print("\rTime into run = {:4.1f} takes {:3.3f}sec {:3.3f}sec {:3.3f}sec {:3.3f}sec {:3.3f}sec".format(rc.subGpsTime(grx, g0),
+    start2-start,start3-start2,start4-start3,end-start4,end-start))
     
 print("____Done______")
 fout.close()

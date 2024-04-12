@@ -19,7 +19,7 @@ N_DWRD_SBF = 10
 N_SBF = 5
 N_DWRD = (N_SBF+1)*N_DWRD_SBF
 R2D = 57.2957795131
-
+PI = np.pi
 @dataclass
 class gpstime_t:
     week: int = 0
@@ -144,7 +144,7 @@ GM = 3.986005*np.power(10.0,14)
 c = 2.99792458*np.power(10.0,8)
 omegae_dot = 7.2921151467*np.power(10.0,-5)
 
-earth_rate = 2*np.pi/(60*60*24)
+earth_rate = 2*PI/(60*60*24)
 
 
 SPEED_OF_LIGHT = 2.99792458e8
@@ -169,7 +169,7 @@ def computeRange(eph, ionoutc, grx, xyz):
     otau = OMEGA_EARTH*tau
     aa = np.array([[1, otau, 0],
                    [-otau , 1 , 0],
-                    [0 , 0, 0 ]])
+                    [0 , 0, 1 ]])
     pos = aa.dot(pos)
     """   xrot = pos[0] + pos[1]*OMEGA_EARTH*tau
     yrot = pos[1] - pos[0]*OMEGA_EARTH*tau
@@ -197,7 +197,7 @@ def computeRange(eph, ionoutc, grx, xyz):
     llh = xyz2llh(xyz)
     tmat = ltcmat(llh)
     #neu = ecef2neu(los, tmat)
-    neu = tmat.dot(llh) 
+    neu = tmat.dot(los) 
     rho.azel = neu2azel(neu)
 
     # Add ionospheric delay
@@ -205,14 +205,15 @@ def computeRange(eph, ionoutc, grx, xyz):
     rho.range += rho.iono_delay
 
     return rho
-
+INVPI = 1.0/PI
+INV24 = 1.0/24.0
 def ionosphericDelay(ionoutc, g, llh, azel):
     iono_delay = 0.0
     if ionoutc.enable == False:
         return(0.0)
-    E = azel[1]/np.pi
-    phi_u = llh[0]/np.pi
-    lam_u = llh[1]/np.pi   
+    E = azel[1]*INVPI
+    phi_u = llh[0]*INVPI
+    lam_u = llh[1]*INVPI  
     F = 1.0 + 16.0*np.power((0.53 - E),3.0)
     if ionoutc.vflg==False:
         iono_delay = F*5.0e-9*SPEED_OF_LIGHT
@@ -223,8 +224,8 @@ def ionosphericDelay(ionoutc, g, llh, azel):
             phi_i = 0.416
         elif phi_i<-0.416:
             phi_i = -0.416
-    lam_i = lam_u + psi*np.sin(azel[0])/np.cos(phi_i*np.pi)
-    phi_m = phi_i + 0.064*np.cos((lam_i - 1.617)*np.pi)
+    lam_i = lam_u + psi*np.sin(azel[0])/np.cos(phi_i*PI)
+    phi_m = phi_i + 0.064*np.cos((lam_i - 1.617)*PI)
     phi_m2 = phi_m*phi_m
     phi_m3 = phi_m2*phi_m
 
@@ -236,35 +237,35 @@ def ionosphericDelay(ionoutc, g, llh, azel):
         PER = 72000.0
 
     # Local time (sec)
-    t = SECONDS_IN_DAY/2.0*lam_i + g.sec
+    t = SECONDS_IN_DAY*0.5*lam_i + g.sec
     while t>=SECONDS_IN_DAY:
         t -= SECONDS_IN_DAY
     while t<0:
         t += SECONDS_IN_DAY
 
     # Phase (radians)
-    X = 2.0*np.pi*(t - 50400.0)/PER
+    X = 2.0*PI*(t - 50400.0)/PER
 
     if np.fabs(X) < 1.57:
         X2 = X*X
         X4 = X2*X2
-        iono_delay = F*(5.0e-9 + AMP*(1.0 - X2/2.0 + X4/24.0))*SPEED_OF_LIGHT
+        iono_delay = F*(5.0e-9 + AMP*(1.0 - X2*0.5 + X4*INV24))*SPEED_OF_LIGHT
     else:
         iono_delay = F*5.0e-9*SPEED_OF_LIGHT
     
     return iono_delay
 
-def codegen(prn):
-
-    ca = np.zeros(CA_SEQ_LEN)
-    delay = [ 5,   6,   7,   8,  17,  18, 139, 140, 141, 251,
+delay = [ 5,   6,   7,   8,  17,  18, 139, 140, 141, 251,
 		252, 254, 255, 256, 257, 258, 469, 470, 471, 472,
 		473, 474, 509, 512, 513, 514, 515, 516, 859, 860,
 		861, 862]
 
+def codegen(prn):
+    
     if prn<1 or prn >32:
         return None
     
+    ca = np.zeros(CA_SEQ_LEN)
     r1 = np.full(N_DWRD_SBF,-1)
     r2 = np.full(N_DWRD_SBF,-1)
     g1 = np.zeros(CA_SEQ_LEN)
@@ -275,7 +276,7 @@ def codegen(prn):
         g2[i] = r2[9]
         c1 = r1[2]*r1[9]
         c2 = r2[1]*r2[2]*r2[5]*r2[7]*r2[8]*r2[9]
-        for j in reversed(range(9)):
+        for j in reversed(range(1,10)):
             r1[j] = r1[j-1]
             r2[j] = r2[j-1]   
         r1[0] = c1
@@ -287,19 +288,19 @@ def codegen(prn):
 
     return ca
                    
-POW2_M5  =0.03125
-POW2_M19 =1.907348632812500e-6
-POW2_M29 =1.862645149230957e-9
-POW2_M31 =4.656612873077393e-10
-POW2_M33 =1.164153218269348e-10
-POW2_M43 =1.136868377216160e-13
-POW2_M55 =2.775557561562891e-17
-POW2_M50 =8.881784197001252e-016
-POW2_M30 =9.313225746154785e-010
-POW2_M27 =7.450580596923828e-009
-POW2_M24 =5.960464477539063e-008
-PI = np.pi
-
+INV_POW2_M5  = 1.0/0.03125
+INV_POW2_M19 =1.0/1.907348632812500e-6
+INV_POW2_M29 =1.0/1.862645149230957e-9
+INV_POW2_M31 =1.0/4.656612873077393e-10
+INV_POW2_M33 =1.0/1.164153218269348e-10
+INV_POW2_M43 =1.0/1.136868377216160e-13
+INV_POW2_M55 =1.0/2.775557561562891e-17
+INV_POW2_M50 =1.0/8.881784197001252e-016
+INV_POW2_M30 =1.0/9.313225746154785e-010
+INV_POW2_M27 =1.0/7.450580596923828e-009
+INV_POW2_M24 =1.0/5.960464477539063e-008
+PI = PI
+INV_PI = 1.0/PI
 def eph2sbf(eph, ionoutc):
 
     wn = int(0)
@@ -307,41 +308,41 @@ def eph2sbf(eph, ionoutc):
     toc = int(eph.toc.sec/16.0)
     iode = int(eph.iode)
     iodc = int(eph.iodc)
-    deltan = int(eph.deltan/POW2_M43/PI)
-    cuc = int(eph.cuc/POW2_M29)
-    cus = int(eph.cus/POW2_M29)
-    cic = int(eph.cic/POW2_M29)
-    cis = int(eph.cis/POW2_M29)
-    crc = int(eph.crc/POW2_M5)
-    crs = int(eph.crs/POW2_M5)
-    ecc = int(eph.ecc/POW2_M33)
-    sqrta = int(eph.sqrta/POW2_M19)
-    m0 = int(eph.m0/POW2_M31/PI)
-    omg0 = int(eph.omg0/POW2_M31/PI)
-    inc0 = int(eph.inc0/POW2_M31/PI)
-    aop = int(eph.aop/POW2_M31/PI)
-    omgdot = int(eph.omgdot/POW2_M43/PI)
-    idot = int(eph.idot/POW2_M43/PI)
-    af0 = int(eph.af0/POW2_M31)
-    af1 = int(eph.af1/POW2_M43)
-    af2 = int(eph.af2/POW2_M55)
-    tgd = int(eph.tgd/POW2_M31)
+    deltan = int(eph.deltan*INV_POW2_M43*INV_PI)
+    cuc = int(eph.cuc*INV_POW2_M29)
+    cus = int(eph.cus*INV_POW2_M29)
+    cic = int(eph.cic*INV_POW2_M29)
+    cis = int(eph.cis*INV_POW2_M29)
+    crc = int(eph.crc*INV_POW2_M5)
+    crs = int(eph.crs*INV_POW2_M5)
+    ecc = int(eph.ecc*INV_POW2_M33)
+    sqrta = int(eph.sqrta*INV_POW2_M19)
+    m0 = int(eph.m0*INV_POW2_M31*INV_PI)
+    omg0 = int(eph.omg0*INV_POW2_M31*INV_PI)
+    inc0 = int(eph.inc0*INV_POW2_M31*INV_PI)
+    aop = int(eph.aop*INV_POW2_M31*INV_PI)
+    omgdot = int(eph.omgdot*INV_POW2_M43*INV_PI)
+    idot = int(eph.idot*INV_POW2_M43*INV_PI)
+    af0 = int(eph.af0*INV_POW2_M31)
+    af1 = int(eph.af1*INV_POW2_M43)
+    af2 = int(eph.af2*INV_POW2_M55)
+    tgd = int(eph.tgd*INV_POW2_M31)
     svhlth = int(eph.svhlth)
     codeL2 = int(eph.codeL2)
 
     wna = int(eph.toe.week%256)
     toa = int(eph.toe.sec/4096.0)
 
-    alpha0 = int(round(ionoutc.alpha0/POW2_M30))
-    alpha1 = int(round(ionoutc.alpha1/POW2_M27))
-    alpha2 = int(round(ionoutc.alpha2/POW2_M24))
-    alpha3 = int(round(ionoutc.alpha3/POW2_M24))
+    alpha0 = int(round(ionoutc.alpha0*INV_POW2_M30))
+    alpha1 = int(round(ionoutc.alpha1*INV_POW2_M27))
+    alpha2 = int(round(ionoutc.alpha2*INV_POW2_M24))
+    alpha3 = int(round(ionoutc.alpha3*INV_POW2_M24))
     beta0 = int(round(ionoutc.beta0/2048.0))
     beta1 = int(round(ionoutc.beta1/16384.0))
     beta2 = int(round(ionoutc.beta2/65536.0))
     beta3 = int(round(ionoutc.beta3/65536.0))
-    A0 = int(round(ionoutc.A0/POW2_M30))
-    A1 = int(round(ionoutc.A1/POW2_M50))
+    A0 = int(round(ionoutc.A0*INV_POW2_M30))
+    A1 = int(round(ionoutc.A1*INV_POW2_M50))
     dtls = int(ionoutc.dtls)
     tot = int(ionoutc.tot/4096)
     wnt = int(ionoutc.wnt%256)
@@ -570,9 +571,9 @@ def generateNavMsg(g, chan, init):
 
     return chan
 
-
+chan = [channel_t() for _ in range(MAX_SAT)]
 def allocateChannel(eph, ionoutc, grx, xyz, elvMask):
-    chan = [channel_t() for _ in range(MAX_SAT)]
+    
     allocatedSat = np.full(MAX_SAT,-1)
     for i in range(MAX_CHAN):
         chan[i].prn = 0
@@ -636,7 +637,7 @@ def allocateChannel(eph, ionoutc, grx, xyz, elvMask):
 			#// Clear satellite allocation flag
             allocatedSat[sv] = -1
 		
-    return chan
+    #return chan
 
 def incGpsTime(g0, dt):
     g1 = gpstime_t()
@@ -669,7 +670,7 @@ def checkSatVisibility(eph_, g, xyz, elvMask):
     neu = ecef2neu(los, tmat)
     azel = neu2azel(neu)
 
-    if azel[1]*180/np.pi > elvMask:
+    if azel[1]*180/PI > elvMask:
         return 1 , azel#Visible
     return 0 , azel
 
@@ -830,8 +831,8 @@ def ltcmat(llh):
     t[2][2] = slat """
 
     return t
-a = WGS84_RADIUS
-e = WGS84_ECCENTRICITY
+#a = WGS84_RADIUS
+#e = WGS84_ECCENTRICITY
 e2 = WGS84_ECCENTRICITY * WGS84_ECCENTRICITY
 eps = 1.0e-3
 def xyz2llh(xyz):
@@ -839,22 +840,22 @@ def xyz2llh(xyz):
     #llh=np.zeros(3)
     if np.linalg.norm(xyz) < eps:
         #Invalid ECEF vector
-        llh=[ 0.0, 0.0, -a]
+        llh=[ 0.0, 0.0, -WGS84_RADIUS]
 
         return llh
 
-    x = xyz[0]
-    y = xyz[1]
-    z = xyz[2]
+    #x = xyz[0]
+    #y = xyz[1]
+    #z = xyz[2]
 
-    rho2 = x*x + y*y
-    dz = e2*z
+    rho2 = xyz[0]*xyz[0] + xyz[1]*xyz[1]
+    dz = e2*xyz[2]
 
     while 1:
-        zdz = z + dz
+        zdz = xyz[2] + dz
         nh = np.sqrt(rho2 + zdz*zdz)
         slat = zdz / nh
-        n = a / np.sqrt(1.0-e2*slat*slat)
+        n = WGS84_RADIUS / np.sqrt(1.0-e2*slat*slat)
         dz_new = n*e2*slat
 
         if np.fabs(dz-dz_new) < eps:
@@ -864,7 +865,7 @@ def xyz2llh(xyz):
 
 
     llh= [np.arctan2(zdz, np.sqrt(rho2)),
-           np.arctan2(y, x),
+           np.arctan2(xyz[1], xyz[0]),
            nh - n]
 
     return llh
@@ -877,13 +878,13 @@ def llh2xyz(llh):
     slat = np.sin(llh[0])
     clon = np.cos(llh[1])
     slon = np.sin(llh[1])
-    d = e*slat
+    d = WGS84_ECCENTRICITY*slat
 
-    n = a/np.sqrt(1.0-d*d)
+    n = WGS84_RADIUS/np.sqrt(1.0-d*d)
     nph = n + llh[2]
 
     tmp = nph*clat
-    xyz = [tmp*clon, tmp*slon, ((1.0-e2)*n + llh[2])*slat]
+    xyz = np.array([tmp*clon, tmp*slon, ((1.0-e2)*n + llh[2])*slat])
 
     return xyz
 
@@ -1030,34 +1031,38 @@ def subGpsTime(g1,g0):
 CODE_FREQ = (1.023e6)
 CARR_TO_CODE = (1.0/1540.0)
 CA_SEQ_LEN = 1023
-def computeCodePhase(rho1,chan,dt):
+INV_LAMBDA_L1 = 1.0/LAMBDA_L1
+INV_SPEED_OF_LIGHT = 1.0/SPEED_OF_LIGHT
+INV_600 = 1.0/600.0
+INV_20 = 1.0/20.0
+def computeCodePhase(rho1,i,dt):
     # Pseudorange rate.
-    rhorate = (rho1.range - chan.rho0.range)/dt
+    rhorate = (rho1.range - chan[i].rho0.range)/dt
 
     # Carrier and code frequency.
-    chan.f_carr = -rhorate/LAMBDA_L1
-    chan.f_code = CODE_FREQ + chan.f_carr*CARR_TO_CODE
+    chan[i].f_carr = -rhorate * INV_LAMBDA_L1
+    chan[i].f_code = CODE_FREQ + chan[i].f_carr*CARR_TO_CODE
 
     # Initial code phase and data bit counters.
-    ms = (subGpsTime(chan.rho0.g,chan.g0) + 6.0 - chan.rho0.range/SPEED_OF_LIGHT)*1000.0
+    ms = (subGpsTime(chan[i].rho0.g,chan[i].g0) + 6.0 - chan[i].rho0.range*INV_SPEED_OF_LIGHT)*1000.0
 
     ims = int(ms)
-    chan.code_phase = (ms-ims)*CA_SEQ_LEN # in chip
+    chan[i].code_phase = (ms-ims)*CA_SEQ_LEN # in chip
 
-    chan.iword = int(ims/600) # 1 word = 30 bits = 600 ms
-    ims -= chan.iword*600
+    chan[i].iword = int(ims*INV_600) # 1 word = 30 bits = 600 ms
+    ims -= chan[i].iword*600
             
-    chan.ibit = int(ims/20) # 1 bit = 20 code = 20 ms
-    ims -= chan.ibit*20
+    chan[i].ibit = int(ims*INV_20) # 1 bit = 20 code = 20 ms
+    ims -= chan[i].ibit*20
 
-    chan.icode = ims # 1 code = 1 ms
+    chan[i].icode = ims # 1 code = 1 ms
 
-    chan.codeCA = int(chan.ca[int(chan.code_phase)]*2-1)
-    chan.dataBit = int((int(chan.dwrd[int(chan.iword)]) >> (29-int(chan.ibit))) & 0x1)*2-1
+    chan[i].codeCA = int(chan[i].ca[int(chan[i].code_phase)]*2-1)
+    chan[i].dataBit = int((int(chan[i].dwrd[int(chan[i].iword)]) >> (29-int(chan[i].ibit))) & 0x1)*2-1
 
     # Save current pseudorange
-    chan.rho0 = rho1
-    return chan
+    chan[i].rho0 = rho1
+
 
 def readRinexNavAll(fname):
     eph = [[Eph() for _ in range(MAX_SAT)] for _ in range(EPHEM_ARRAY_SIZE)]
@@ -1292,45 +1297,74 @@ cosTable512 = [250, 250, 250, 250, 250, 249, 249, 249, 249, 248, 248, 248, 247, 
 samp_freq = 2.6e6
 delt = 1.0/samp_freq
 iq_buff_size = int(np.floor(samp_freq/10.0))
-shm_a = shared_memory.SharedMemory(create=True, size=128*iq_buff_size)
-shm_b = shared_memory.SharedMemory(create=True, size=128*iq_buff_size)
-shm_c = shared_memory.SharedMemory(create=True, size=128*iq_buff_size)
-shm_s = shared_memory.SharedMemory(create=True, size=128*iq_buff_size)
-a = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int64,buffer = shm_a.buf)
-b = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int64,buffer = shm_b.buf)
-c = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int64,buffer = shm_c.buf)
+shm_a = shared_memory.SharedMemory(create=True, size=MAX_CHAN*32*iq_buff_size)
+shm_b = shared_memory.SharedMemory(create=True, size=MAX_CHAN*32*iq_buff_size)
+shm_c = shared_memory.SharedMemory(create=True, size=MAX_CHAN*32*iq_buff_size)
+shm_s = shared_memory.SharedMemory(create=True, size=MAX_CHAN*32*iq_buff_size)
+a = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int32,buffer = shm_a.buf)
+b = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int32,buffer = shm_b.buf)
+c = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int32,buffer = shm_c.buf)
 #d = np.zeros(iq_buff_size)
 s = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int64,buffer = shm_s.buf) 
 
-def cal_acc(chan,ch):
-    #proc = os.getpid()
-    #print("Process Id: ",proc, "start")
+def cal_acc(i):
+    
+    f_code_delt = chan[i].f_code * delt
+
     for isamp in range(iq_buff_size):
-        iTable = (chan.carr_phase >> 16) & 0x1ff # 9-bit index
-        a[ch][isamp] = chan.dataBit
-        b[ch][isamp] = chan.codeCA
-        c[ch][isamp] = cosTable512[iTable]
-        s[ch][isamp] = sinTable512[iTable]
-        #d[isamp] = gain
+        iTable = (chan[i].carr_phase >> 16) & 0x1ff # 9-bit index
+        a[i][isamp] = chan[i].dataBit
+        b[i][isamp] = chan[i].codeCA
+        c[i][isamp] = cosTable512[iTable]
+        s[i][isamp] = sinTable512[iTable]
+
         # Update code phase
-        chan.code_phase += chan.f_code * delt
-        if chan.code_phase>=CA_SEQ_LEN:
-            chan.code_phase -= CA_SEQ_LEN
-            chan.icode += 1
-            if chan.icode>=20: #20 C/A codes = 1 navigation data bit
-                chan.icode = 0
-                chan.ibit += 1
-                if chan.ibit>=30: # 30 navigation data bits = 1 word
-                    chan.ibit = 0
-                    chan.iword +=1
+        chan[i].code_phase += f_code_delt
+        if chan[i].code_phase >= CA_SEQ_LEN:
+            chan[i].code_phase -= CA_SEQ_LEN
+            chan[i].icode += 1
+            if chan[i].icode >= 20: #20 C/A codes = 1 navigation data bit
+                chan[i].icode = 0
+                chan[i].ibit += 1
+                if chan[i].ibit >= 30: # 30 navigation data bits = 1 word
+                    chan[i].ibit = 0
+                    chan[i].iword +=1
                 # Set new navigation data bit
-                chan.dataBit = ((int(chan.dwrd[chan.iword]) >> (29-chan.ibit)) & 0x1)*2 - 1
+                chan[i].dataBit = ((int(chan[i].dwrd[chan[i].iword]) >> (29 - chan[i].ibit)) & 0x1) * 2 - 1
         # Set current code chip
-        chan.codeCA = chan.ca[int(chan.code_phase)]*2-1
+        ca = chan[i].ca[int(chan[i].code_phase)]
+        chan[i].codeCA = ca * 2 - 1
         # Update carrier phase
-        chan.carr_phase += chan.carr_phasestep
-    #out = [a,b,c,s]
-    #result_queue.put(a)
+        chan[i].carr_phase += chan[i].carr_phasestep 
 
 
-        
+
+""" shm_bout = shared_memory.SharedMemory(create=True, size=4*iq_buff_size)
+bout =  np.ndarray(4*iq_buff_size, dtype=np.byte,buffer = shm_bout.buf)
+def fill_bout_sum_ip(sum_ip):
+    for isamp in range(len(sum_ip)):
+        i_acc = int(sum_ip[isamp]) >> 7
+        #q_acc = int(sum_qp[isamp]) >> 7
+        # Scaled by 2^7
+        i_acc +=  1
+       # q_acc +=  1
+         
+        index =  isamp << 2
+        bout[index] = i_acc & 0xff
+        bout[index+1] = (i_acc >> 8) & 0xff
+        #bout[isamp+2] = q_acc & 0xff
+        #bout[isamp+3] = (q_acc >> 8) & 0xff
+def fill_bout_sum_qp(sum_qp):
+    for isamp in range(len(sum_qp)):
+        #i_acc = int(sum_ip[isamp]) >> 7
+        q_acc = int(sum_qp[isamp]) >> 7
+        # Scaled by 2^7
+        #i_acc +=  1
+        q_acc +=  1
+         
+        index =  isamp << 2
+        #bout[isamp] = i_acc & 0xff
+        #bout[isamp+1] = (i_acc >> 8) & 0xff
+        bout[index+2] = q_acc & 0xff
+        bout[index+3] = (q_acc >> 8) & 0xff
+         """
