@@ -240,7 +240,7 @@ for iumd in range(numd):
     start2 = time.clock_gettime(time.CLOCK_REALTIME)
     procs = []
 
-    for index in range(CHAN):
+    for index in range(1):
         proc  = Process(target=rc.cal_acc, args=(index,))
         procs.append(proc)
         proc.start()

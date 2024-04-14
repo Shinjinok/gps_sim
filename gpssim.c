@@ -1720,7 +1720,7 @@ void usage(void)
 	return;
 }
 
-int main(int argc, char *argv[])
+int get_signal(float latitude, float longitude, float height)
 {
 	clock_t tstart,tend;
 
@@ -1800,13 +1800,13 @@ int main(int argc, char *argv[])
 	verb = FALSE;
 	ionoutc.enable = TRUE;
 
-	if (argc<3)
+	/* if (argc<3)
 	{
 		usage();
 		exit(1);
-	}
+	} */
 
-	while ((result=getopt(argc,argv,"e:u:x:g:c:l:o:s:b:T:t:d:ipv"))!=-1)
+	/* while ((result=getopt(argc,argv,"e:u:x:g:c:l:o:s:b:T:t:d:ipv"))!=-1)
 	{
 		switch (result)
 		{
@@ -1832,15 +1832,17 @@ int main(int argc, char *argv[])
 			staticLocationMode = TRUE;
 			sscanf(optarg,"%lf,%lf,%lf",&xyz[0][0],&xyz[0][1],&xyz[0][2]);
 			break;
-		case 'l':
+		case 'l': */
 			// Static geodetic coordinates input mode
 			// Added by scateu@gmail.com
 			staticLocationMode = TRUE;
-			sscanf(optarg,"%lf,%lf,%lf",&llh[0],&llh[1],&llh[2]);
-			llh[0] = llh[0] / R2D; // convert to RAD
-			llh[1] = llh[1] / R2D; // convert to RAD
+//			sscanf(optarg,"%lf,%lf,%lf",&llh[0],&llh[1],&llh[2]);
+			llh[0] = latitude / R2D; // convert to RAD
+			llh[1] = longitude / R2D; // convert to RAD
+			llh[2] = height;
 			llh2xyz(llh,xyz[0]); // Convert llh to xyz
-			break;
+			data_format!=SC08;
+/*			break;
 		case 'o':
 			strcpy(outfile, optarg);
 			break;
@@ -1934,7 +1936,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	iduration = (int)(duration*10.0 + 0.5);
-
+*/
 	// Buffer size	
 	samp_freq = floor(samp_freq/10.0);
 	iq_buff_size = (int)samp_freq; // samples per 0.1sec
@@ -1946,7 +1948,7 @@ int main(int argc, char *argv[])
 	// Receiver position
 	////////////////////////////////////////////////////////////
 
-	if (!staticLocationMode)
+	/* if (!staticLocationMode)
 	{
 		// Read user motion file
 		if (nmeaGGA==TRUE)
@@ -1975,7 +1977,7 @@ int main(int argc, char *argv[])
 		xyz2llh(xyz[0], llh);
 	} 
 	else 
-	{ 
+	{  */
 		// Static geodetic coordinates input mode: "-l"
 		// Added by scateu@gmail.com 
 		fprintf(stderr, "Using static location mode.\n");
@@ -1985,7 +1987,7 @@ int main(int argc, char *argv[])
 
 		// Set user initial position
 		llh2xyz(llh, xyz[0]);
-	}
+//	}
 
 	fprintf(stderr, "xyz = %11.1f, %11.1f, %11.1f\n", xyz[0][0], xyz[0][1], xyz[0][2]);
 	fprintf(stderr, "llh = %11.6f, %11.6f, %11.1f\n", llh[0]*R2D, llh[1]*R2D, llh[2]);
@@ -1994,7 +1996,9 @@ int main(int argc, char *argv[])
 	////////////////////////////////////////////////////////////
 	// Read ephemeris
 	////////////////////////////////////////////////////////////
+	
 
+	strcpy(navfile,"brdc1030.24n");
 	neph = readRinexNavAll(eph, &ionoutc, navfile);
 
 	if (neph==0)
@@ -2051,7 +2055,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	return 0;
+
 	if (g0.week>=0) // Scenario start time has been set.
 	{
 		if (timeoverwrite==TRUE)

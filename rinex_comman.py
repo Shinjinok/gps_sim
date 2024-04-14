@@ -160,10 +160,7 @@ def computeRange(eph, ionoutc, grx, xyz):
 
     # Extrapolate the satellite position backwards to the transmission time.
     pos -= vel*tau
-    """ pos[0] -= vel[0]*tau
-    pos[1] -= vel[1]*tau
-    pos[2] -= vel[2]*tau """
-
+   
     # Earth rotation correction. The change in velocity can be neglected.
     
     otau = OMEGA_EARTH*tau
@@ -171,11 +168,7 @@ def computeRange(eph, ionoutc, grx, xyz):
                    [-otau , 1 , 0],
                     [0 , 0, 1 ]])
     pos = aa.dot(pos)
-    """   xrot = pos[0] + pos[1]*OMEGA_EARTH*tau
-    yrot = pos[1] - pos[0]*OMEGA_EARTH*tau
-    pos[0] = xrot
-    pos[1] = yrot """
-
+    
     # New observer to satellite vector and satellite range.
     los = pos-xyz
     range = np.linalg.norm(los)
@@ -205,6 +198,7 @@ def computeRange(eph, ionoutc, grx, xyz):
     rho.range += rho.iono_delay
 
     return rho
+
 INVPI = 1.0/PI
 INV24 = 1.0/24.0
 def ionosphericDelay(ionoutc, g, llh, azel):
@@ -1035,16 +1029,17 @@ INV_LAMBDA_L1 = 1.0/LAMBDA_L1
 INV_SPEED_OF_LIGHT = 1.0/SPEED_OF_LIGHT
 INV_600 = 1.0/600.0
 INV_20 = 1.0/20.0
-def computeCodePhase(rho1,i,dt):
+def computeCodePhase(rho,i,dt):
     # Pseudorange rate.
-    rhorate = (rho1.range - chan[i].rho0.range)/dt
+    rho_rate = (rho.range - chan[i].rho0.range)/dt
 
     # Carrier and code frequency.
-    chan[i].f_carr = -rhorate * INV_LAMBDA_L1
+    chan[i].f_carr = -rho_rate * INV_LAMBDA_L1
     chan[i].f_code = CODE_FREQ + chan[i].f_carr*CARR_TO_CODE
 
     # Initial code phase and data bit counters.
-    ms = (subGpsTime(chan[i].rho0.g,chan[i].g0) + 6.0 - chan[i].rho0.range*INV_SPEED_OF_LIGHT)*1000.0
+    ms = (subGpsTime(chan[i].rho0.g,chan[i].g0) + 6.0 
+          - chan[i].rho0.range*INV_SPEED_OF_LIGHT)*1000.0 # [sec]
 
     ims = int(ms)
     chan[i].code_phase = (ms-ims)*CA_SEQ_LEN # in chip
@@ -1061,7 +1056,7 @@ def computeCodePhase(rho1,i,dt):
     chan[i].dataBit = int((int(chan[i].dwrd[int(chan[i].iword)]) >> (29-int(chan[i].ibit))) & 0x1)*2-1
 
     # Save current pseudorange
-    chan[i].rho0 = rho1
+    chan[i].rho0 = rho
 
 
 def readRinexNavAll(fname):
@@ -1304,8 +1299,7 @@ shm_s = shared_memory.SharedMemory(create=True, size=MAX_CHAN*32*iq_buff_size)
 a = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int32,buffer = shm_a.buf)
 b = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int32,buffer = shm_b.buf)
 c = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int32,buffer = shm_c.buf)
-#d = np.zeros(iq_buff_size)
-s = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int64,buffer = shm_s.buf) 
+s = np.ndarray((MAX_CHAN,iq_buff_size),dtype=np.int32,buffer = shm_s.buf) 
 
 def cal_acc(i):
     
