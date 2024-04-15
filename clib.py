@@ -1,17 +1,27 @@
-#cc -c -o gpssim.o gpssim.c -fPIC
-#gcc -shared -o gpssim.so gpssim.o
-
+#cc -c -o gpssim.o gpssim.c -fPIC | gcc -shared -o gpssim.so gpssim.o
+#hackrf_transfer -t gpssim.bin -f 1575420000 -s 2600000 -a 1 -x 0
 import ctypes
+import struct
 
 # A. Create library
 C_library = ctypes.CDLL("./gpssim.so")
 
 # B. Specify function signatures
-hello_fxn = C_library.get_signal
-hello_fxn.argtypes = [ctypes.c_float,ctypes.c_float,ctypes.c_float]
+initialize = C_library.ephem_initial
+initialize.argtypes = [ctypes.c_char_p]
+
+# C. Invoke function
+filename = "brdc1030.24n".encode('ascii')
+ret = initialize(filename) # hyncungwon
+
+
+
+# B. Specify function signatures
+get_stream = C_library.get_signal
+get_stream.argtypes = [ctypes.c_double,ctypes.c_double,ctypes.c_double]
 
 # C. Invoke function
 
-y = hello_fxn(35.681298,139.766247,10)
+y = get_stream(37.496248,126.968514,10) # hyncungwon
 print(y)
 

@@ -1719,16 +1719,29 @@ void usage(void)
 
 	return;
 }
-
-int get_signal(float latitude, float longitude, float height)
+int neph;
+ephem_t eph[EPHEM_ARRAY_SIZE][MAX_SAT];
+ionoutc_t ionoutc;
+int ephem_initial(char* filename)
+{
+	//strcpy(navfile,filename);
+	neph = readRinexNavAll(eph, &ionoutc, filename);
+	fprintf(stderr, "Rinex file name = %s\n", filename);
+	if (neph == -1){
+		return FALSE;
+	}
+	
+	return TRUE;
+}
+int get_signal(double latitude, double longitude, double height)
 {
 	clock_t tstart,tend;
 
 	FILE *fp;
 
 	int sv;
-	int neph,ieph;
-	ephem_t eph[EPHEM_ARRAY_SIZE][MAX_SAT];
+	int ieph;
+	
 	gpstime_t g0;
 	
 	double llh[3];
@@ -1781,7 +1794,7 @@ int get_signal(float latitude, float longitude, float height)
 
 	int timeoverwrite = FALSE; // Overwrite the TOC and TOE in the RINEX file
 
-	ionoutc_t ionoutc;
+	
 	int path_loss_enable = TRUE;
 
 	////////////////////////////////////////////////////////////
@@ -1793,7 +1806,7 @@ int get_signal(float latitude, float longitude, float height)
 	umfile[0] = 0;
 	strcpy(outfile, "gpssim.bin");
 	samp_freq = 2.6e6;
-	data_format = SC16;
+	data_format = SC08;
 	g0.week = -1; // Invalid start time
 	iduration = USER_MOTION_SIZE;
 	duration = (double)iduration/10.0; // Default duration
@@ -1841,7 +1854,7 @@ int get_signal(float latitude, float longitude, float height)
 			llh[1] = longitude / R2D; // convert to RAD
 			llh[2] = height;
 			llh2xyz(llh,xyz[0]); // Convert llh to xyz
-			data_format!=SC08;
+//			data_format!=SC08;
 /*			break;
 		case 'o':
 			strcpy(outfile, optarg);
@@ -1998,8 +2011,8 @@ int get_signal(float latitude, float longitude, float height)
 	////////////////////////////////////////////////////////////
 	
 
-	strcpy(navfile,"brdc1030.24n");
-	neph = readRinexNavAll(eph, &ionoutc, navfile);
+	//strcpy(navfile,"brdc1030.24n");
+	//neph = readRinexNavAll(eph, &ionoutc, navfile);
 
 	if (neph==0)
 	{
