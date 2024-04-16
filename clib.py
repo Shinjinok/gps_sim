@@ -11,17 +11,14 @@ initialize = C_library.ephem_initial
 initialize.argtypes = [ctypes.c_char_p]
 
 # C. Invoke function
-filename = "brdc1030.24n".encode('ascii')
-ret = initialize(filename) # hyncungwon
-
-
+filename = "brdc1070.24n".encode('ascii')
+ret = initialize(filename) 
 
 # B. Specify function signatures
 get_stream = C_library.get_signal
-get_stream.argtypes = [ctypes.c_double,ctypes.c_double,ctypes.c_double]
+get_stream.argtypes = [ctypes.c_double,ctypes.c_double,ctypes.c_double,ctypes.c_double]
 
 # C. Invoke function
-
-y = get_stream(37.496248,126.968514,10) # hyncungwon
+y = get_stream(37.496248,126.968514,10.0,0.0) # hyncungwon
 print(y)
 

@@ -1630,7 +1630,7 @@ int allocateChannel(channel_t *chan, ephem_t *eph, ionoutc_t ionoutc, gpstime_t 
 	for (sv=0; sv<MAX_SAT; sv++)
 	{
 		
-		if(checkSatVisibility(eph[sv], grx, xyz, 0.0, azel)==1)
+		if(checkSatVisibility(eph[sv], grx, xyz, elvMask, azel)==1)
 		{
 			nsat++; // Number of visible satellites
 
@@ -1733,7 +1733,7 @@ int ephem_initial(char* filename)
 	
 	return TRUE;
 }
-int get_signal(double latitude, double longitude, double height)
+int get_signal(double latitude, double longitude, double height, double elvmask)
 {
 	clock_t tstart,tend;
 
@@ -1748,7 +1748,7 @@ int get_signal(double latitude, double longitude, double height)
 	
 	int i;
 	channel_t chan[MAX_CHAN];
-	double elvmask = 0.0; // in degree
+	//double elvmask = 0.0; // in degree
 
 	int ip,qp;
 	int iTable;
@@ -1854,7 +1854,7 @@ int get_signal(double latitude, double longitude, double height)
 			llh[1] = longitude / R2D; // convert to RAD
 			llh[2] = height;
 			llh2xyz(llh,xyz[0]); // Convert llh to xyz
-//			data_format!=SC08;
+			data_format!=SC08;
 /*			break;
 		case 'o':
 			strcpy(outfile, optarg);
@@ -1878,7 +1878,8 @@ int get_signal(double latitude, double longitude, double height)
 		case 'T':
 			timeoverwrite = TRUE;
 			if (strncmp(optarg, "now", 3)==0)
-			{
+			{*/
+				timeoverwrite = TRUE;
 				time_t timer;
 				struct tm *gmt;
 				
@@ -1893,7 +1894,10 @@ int get_signal(double latitude, double longitude, double height)
 				t0.sec = (double)gmt->tm_sec;
 
 				date2gps(&t0, &g0);
-				
+				fprintf(stderr, "tmin = %4d/%02d/%02d,%02d:%02d:%02.0f (%d:%.0f)\n", 
+					t0.y, t0.m, t0.d, t0.hh, t0.mm, t0.sec,
+					gmin.week, gmin.sec);
+			/*
 				break;
 			}
 		case 't':
@@ -1993,7 +1997,7 @@ int get_signal(double latitude, double longitude, double height)
 	{  */
 		// Static geodetic coordinates input mode: "-l"
 		// Added by scateu@gmail.com 
-		fprintf(stderr, "Using static location mode.\n");
+		//fprintf(stderr, "Using static location mode.\n");
 
 		// Set simulation duration
 		numd = iduration;
@@ -2002,7 +2006,7 @@ int get_signal(double latitude, double longitude, double height)
 		llh2xyz(llh, xyz[0]);
 //	}
 
-	fprintf(stderr, "xyz = %11.1f, %11.1f, %11.1f\n", xyz[0][0], xyz[0][1], xyz[0][2]);
+	//fprintf(stderr, "xyz = %11.1f, %11.1f, %11.1f\n", xyz[0][0], xyz[0][1], xyz[0][2]);
 	fprintf(stderr, "llh = %11.6f, %11.6f, %11.1f\n", llh[0]*R2D, llh[1]*R2D, llh[2]);
 
 
